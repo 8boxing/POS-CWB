@@ -9,7 +9,6 @@
 <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
 <!-- SheetJS / XLSX -->
 <script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 
 <style>
 *,*::before,*::after{
@@ -326,35 +325,6 @@ tbody tr td input.name-input{width:100%;min-width:80px;}
     .main-wrap{grid-template-columns:1fr;}
     .pay-grid{grid-template-columns:repeat(2,1fr);}
 }
-
-/* ===== 手机适配 (V15 补丁) ===== */
-@media(max-width:600px){
-  body{padding:8px;font-size:13px;}
-  .main-wrap{grid-template-columns:1fr;gap:8px;}
-  .top-bar{padding:8px 10px;flex-wrap:wrap;gap:6px;}
-  .top-bar .title{font-size:15px;}
-  .bar-row{flex-wrap:wrap;}
-  #barcode{flex:1 1 100%;margin-bottom:4px;}
-  .btn{padding:8px 10px;font-size:13px;}
-  .table-box{max-height:50vh;overflow:auto;}
-  table{font-size:12px;}
-  th,td{padding:5px 4px;}
-  .pay-grid{grid-template-columns:repeat(2,1fr);}
-  .modal-inner{width:95%!important;padding:16px;}
-  .summary{flex-wrap:wrap;gap:8px;}
-  .right-area{display:none;} /* 桌面右侧管理区块默认隐藏，通过菜单触发（简化） */
-  #scanFab{display:flex!important;}
-}
-#scanFab{
-  display:none;position:fixed;right:16px;bottom:16px;z-index:9000;
-  width:56px;height:56px;border-radius:50%;background:#17a2b8;color:#fff;
-  align-items:center;justify-content:center;font-size:24px;box-shadow:0 4px 12px rgba(0,0,0,.3);
-  border:none;cursor:pointer;
-}
-#scanModal .modal-inner{width:380px;}
-#scanRegion{width:100%;min-height:240px;background:#000;border-radius:6px;overflow:hidden;}
-#scanRegion video{width:100%;height:auto;}
-
 </style>
 </head>
 <body>
@@ -775,23 +745,6 @@ tbody tr td input.name-input{width:100%;min-width:80px;}
 </div>
 
 <!-- Toast 提示 -->
-
-<!-- 手机扫码 FAB -->
-<button id="scanFab" type="button" title="扫条码">📷</button>
-<div class="modal" id="scanModal">
-  <div class="modal-inner">
-    <h3>📷 手机相机扫码</h3>
-    <p style="font-size:12px;color:#666;margin-bottom:8px;">将商品条码对准取景框，识别后自动填入输入框。</p>
-    <div id="scanRegion"></div>
-    <div id="scanStatus" style="font-size:12px;color:#999;margin-top:6px;">点击「开始扫码」以启动相机</div>
-    <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;">
-      <button type="button" class="btn btn-green" id="scanStartBtn">▶ 开始扫码</button>
-      <button type="button" class="btn btn-red" id="scanStopBtn">■ 停止</button>
-      <button type="button" class="btn" id="scanCloseBtn" style="background:#6c757d;color:#fff;">✖ 关闭</button>
-    </div>
-  </div>
-</div>
-
 <div class="toast" id="toast"></div>
 
 <!-- ★★★ 單項新增商品彈窗（掃到未登記條碼時自動彈出）★★★ -->
@@ -2386,52 +2339,6 @@ window.addStockFromCart = async function() {
  * ===================================================================== */
 renderTable(); calcMoney(); showToast('系統就緒 ✅ v6.4');
 console.log('✅ POS 系統 v6.4 載入完成（CWB / 重印 + Void + 支出 + 進階查詢 + 找贖 + Float + 快捷搜尋 + Email報告 / 結帳列印解耦修復）');
-
-/* ===== 手机相机扫码 (Html5Qrcode) ===== */
-window._scanner = null;
-window._scanRunning = false;
-function el(id){return document.getElementById(id);}
-function openScanModal(){openModal('scanModal');el('scanStatus').innerText='点击「开始扫码」以启动相机';}
-function closeScanModal(){stopScan();closeModal('scanModal');}
-async function startScan(){
-  if(window._scanRunning)return;
-  var region=el('scanRegion');el('scanStatus').innerText='请求相机权限...';
-  try{
-    if(!window.Html5Qrcode){el('scanStatus').innerText='扫码库未加载，请检查网络';return;}
-    window._scanner=new Html5Qrcode('scanRegion');
-    var camId=window._scanner.getRunningTrackLabels?null:null;
-    // 使用后置摄像头（环境摄像头）
-    var devices=await Html5Qrcode.getCameras();
-    var back=devices.find(function(d){return /back|environment|后置/i.test(d.label);})||devices[devices.length-1];
-    var camId2=back?back.id:undefined;
-    await window._scanner.start(
-      camId2?{deviceId:{exact:camId2}}:undefined,
-      {fps:10,qrbox:240,disableFlip:true},
-      function(decodedText){
-        var code=String(decodedText).trim();
-        el('scanStatus').innerText='识别到: '+code+' （已填入输入框）';
-        var bc=el('barcode');if(bc){bc.value=code;bc.focus();}
-        stopScan();
-        closeScanModal();
-        // 自动触发新增（若存在）
-        if(typeof window.addGood==='function'){try{window.addGood();}catch(e){console.warn(e);}}
-      },
-      function(err){/* 逐帧错误忽略 */}
-    );
-    window._scanRunning=true;el('scanStatus').innerText='扫码中...将条码对准取景框';
-  }catch(err){console.error(err);el('scanStatus').innerText='启动失败: '+err.message;}
-}
-function stopScan(){
-  if(window._scanner&&window._scanRunning){try{window._scanner.stop().then(function(){window._scanner.clear();});}catch(e){}}
-  window._scanRunning=false;window._scanner=null;
-}
-el('scanFab').addEventListener('click',openScanModal);
-el('scanStartBtn').addEventListener('click',startScan);
-el('scanStopBtn').addEventListener('click',stopScan);
-el('scanCloseBtn').addEventListener('click',closeScanModal);
-// 桌面端：在条码输入框后若有容器可挂载「扫码」入口；这里统一由 FAB 触发（移动端可见）
-window.addEventListener('beforeunload',stopScan);
-
 </script>
 </body>
 </html>
