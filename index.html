@@ -71,6 +71,7 @@ tbody tr td input.qty-input{width:55px;}
 tbody tr td input.disc-input{width:50px;}
 tbody tr td input.price-input{width:70px;}
 tbody tr td input.name-input{width:100%;min-width:80px;}
+tbody tr td input.subtotal-input{width:72px;text-align:right;font-weight:bold;}
 
 /* 條碼列 */
 .bar-row{display:flex;gap:6px;align-items:center;}
@@ -142,7 +143,7 @@ tbody tr td input.name-input{width:100%;min-width:80px;}
 
 /* 80mm 熱感紙小票樣式 */
 .receipt{
-    display:none;width:72mm;margin:0 auto;padding:0;
+    display:none;width:80mm;margin:0 auto;padding:0;
     font-family:"Courier New",monospace;font-size:11px;line-height:1.35;
     color:#000;background:#fff;
 }
@@ -159,9 +160,14 @@ tbody tr td input.name-input{width:100%;min-width:80px;}
 .receipt .r-notice{font-size:9px;text-align:center;margin-top:4px;}
 .receipt .r-footer{text-align:center;font-size:10px;margin-top:4px;}
 .receipt .r-grow{display:flex;justify-content:space-between;}
+/* 長項目獨佔整行：品名佔滿整行自動換行，下一行再擺數量/小計 */
+.receipt .r-item-line{width:100%;}
+.receipt .r-item-name{white-space:normal;word-break:break-word;word-wrap:break-word;}
+.receipt .r-item-meta{width:100%;margin-top:0;}
+.receipt .r-item-sub{font-weight:bold;}
 
 @media print{
-    @page{size:80mm auto;margin:3mm 4mm;}
+    @page{size:80mm auto;margin:0;}
     body *{visibility:hidden !important;}
     .receipt,.receipt *{visibility:visible !important;position:static !important;}
     /* 預設只列印正常收據；voidReceiptDom 預設隱藏，避免結帳時一併印出 Void 收據 */
@@ -325,6 +331,42 @@ tbody tr td input.name-input{width:100%;min-width:80px;}
     .main-wrap{grid-template-columns:1fr;}
     .pay-grid{grid-template-columns:repeat(2,1fr);}
 }
+
+/* ★★★ 會員模糊搜尋下拉面板（移植自 V18）★★★ */
+.mem-search-wrap{position:relative;display:flex;flex:1;min-width:160px;}
+.mem-search-wrap>#phoneInput{flex:1;}
+.mem-dropdown{
+    position:absolute;top:100%;left:0;right:0;z-index:999;
+    background:#fff;border:1px solid #0052cc;border-top:none;
+    border-radius:0 0 6px 6px;max-height:220px;overflow-y:auto;
+    box-shadow:0 8px 20px rgba(0,82,204,.18);display:none;
+}
+.mem-dropdown.open{display:block;}
+.mem-dropdown .md-item{
+    padding:8px 12px;cursor:pointer;border-bottom:1px solid #f0f0f0;
+    font-size:13px;display:flex;justify-content:space-between;align-items:center;
+    transition:.1s;
+}
+.mem-dropdown .md-item:last-child{border-bottom:none;}
+.mem-dropdown .md-item:hover,.mem-dropdown .md-item.active{background:#e8f1ff;}
+.mem-dropdown .md-name{font-weight:bold;color:#222;}
+.mem-dropdown .md-phone{color:#0052cc;font-size:12px;}
+.mem-dropdown .md-empty{padding:10px 12px;color:#999;font-size:12px;text-align:center;}
+
+/* ★★★ 會員消費明細 modal（移植自 V18）★★★ */
+.mem-history-modal .modal-inner{width:560px;max-width:94%;}
+.mem-history-info{background:#e8f1ff;border:1px solid #cce4ff;border-radius:6px;padding:8px 12px;margin-bottom:10px;font-size:13px;line-height:1.8;}
+.mem-history-info b{color:#0052cc;}
+.mem-history-list{max-height:420px;overflow-y:auto;border:1px solid #ddd;border-radius:6px;background:#fafafa;}
+.mem-history-list table{width:100%;border-collapse:collapse;font-size:13px;}
+.mem-history-list th{background:#0052cc;color:#fff;padding:6px 8px;text-align:left;position:sticky;top:0;}
+.mem-history-list td{padding:5px 8px;border-bottom:1px solid #eee;vertical-align:top;}
+.mem-history-list tr:hover{background:#e8f1ff;}
+.mem-history-list .mh-order-row{background:#f0f6ff;}
+.mem-history-list .mh-order-row td{font-weight:bold;color:#0052cc;font-size:12px;padding-top:8px;border-bottom:2px solid #cce4ff;}
+.mem-history-list .mh-item-name{color:#333;}
+.mem-history-list .mh-void{color:#dc3545;}
+.mem-history-list .mh-empty{padding:20px;text-align:center;color:#999;}
 </style>
 </head>
 <body>
@@ -355,6 +397,7 @@ tbody tr td input.name-input{width:100%;min-width:80px;}
             <button type="button" class="btn btn-green" onclick="addGood()">＋ 新增</button>
             <button type="button" class="btn btn-red" onclick="delSelect()">🗑 刪除選取</button>
             <button type="button" class="btn" style="background:#17a2b8;color:#fff;" onclick="addStockFromCart()">📦 加庫存</button>
+            <button type="button" class="btn" style="background:#8e44ad;color:#fff;" onclick="applyAllDiscount10()">🔟 全單9折</button>
             <button type="button" class="btn btn-blue" onclick="openPay()">💳 結帳收款</button>
         </div>
         <div class="summary">
@@ -379,7 +422,10 @@ tbody tr td input.name-input{width:100%;min-width:80px;}
             <div class="line"><span id="customerText">當前客戶: 顧客 WALK IN</span></div>
             <div class="line">
                 <label>客戶電話</label>
-                <input type="text" id="phoneInput" placeholder="輸入電話查詢會員">
+                <div class="mem-search-wrap">
+                    <input type="text" id="phoneInput" placeholder="輸入電話/姓名（≥3字元自動搜尋）" autocomplete="off" oninput="onPhoneInputChange(this.value)">
+                    <div class="mem-dropdown" id="memDropdown"></div>
+                </div>
                 <button type="button" class="btn btn-blue btn-sm" onclick="searchMember()">查詢</button>
                 <button type="button" class="btn btn-green btn-sm" onclick="openAddMember()">新增</button>
             </div>
@@ -463,6 +509,20 @@ tbody tr td input.name-input{width:100%;min-width:80px;}
             <button type="button" class="btn btn-red" onclick="clearPay(event)">🗑 清空付款</button>
             <button type="button" class="btn btn-blue" onclick="confirmCheckout(event)">✅ 確認結帳</button>
             <button type="button" class="btn btn-red" onclick="closeModal('payModal')">✖ 取消</button>
+        </div>
+    </div>
+</div>
+
+<!-- ★★★ 會員消費明細彈窗（移植自 V18）★★★ -->
+<div class="modal mem-history-modal" id="memHistoryModal">
+    <div class="modal-inner">
+        <h3>📋 會員消費明細</h3>
+        <div class="mem-history-info" id="memHistoryInfo">載入中...</div>
+        <div class="mem-history-list" id="memHistoryList">
+            <p style="color:#999;padding:20px;text-align:center;">載入中...</p>
+        </div>
+        <div style="margin-top:14px;text-align:right;">
+            <button type="button" class="btn btn-red" onclick="closeModal('memHistoryModal')">✖ 關閉</button>
         </div>
     </div>
 </div>
@@ -692,7 +752,7 @@ tbody tr td input.name-input{width:100%;min-width:80px;}
         <div class="r-small" id="rbarcodeText"></div>
     </div>
     <div class="r-line"></div>
-    <div class="r-notice">
+    <div class="r-notice" style="text-align:left">
         退換貨須知：<br>
         所有貨品概不退回現金<br>
         請於 7 日內憑此收據辦理退換貨<br>
@@ -703,46 +763,55 @@ tbody tr td input.name-input{width:100%;min-width:80px;}
     <div class="r-footer">
         <div>www.8boxing.com.hk</div>
         <div>Tel: 2330 2550</div>
-        <div style="margin-top:3px;">多謝惠顧 🙏</div>
+        <div style="margin-top:3px;">**多謝惠顧 Thank you**</div>
     </div>
 </div>
 
-<!-- Void 收據模板 -->
-<div class="receipt" id="voidReceiptDom">
-    <div style="text-align:center;color:red;font-size:18px;font-weight:bold;margin-bottom:4px;border:2px solid red;padding:4px;">✖ VOID / 已取消 ✖</div>
-    <div class="r-title" id="voidShopName">8BOXING 泰拳用品店</div>
-    <div class="r-center" id="voidBranch">VOID RECEIPT</div>
-    <div class="r-line"></div>
-    <div class="r-row"><span>原單號：</span><span id="voidRid" class="r-bold"></span></div>
-    <div class="r-row"><span>日期：</span><span id="voidRtime"></span></div>
-    <div class="r-row"><span>營業員：</span><span id="voidRstaff"></span></div>
-    <div class="r-row"><span>客戶：</span><span id="voidRcust"></span></div>
-    <div class="r-line"></div>
-    <div id="voidRlist"></div>
-    <div class="r-line"></div>
-    <div class="r-row r-bold"><span>原合計：</span><span id="voidRtotal"></span></div>
-    <div class="r-row"><span>原付款方式：</span><span id="voidRpayway"></span></div>
-    <div class="r-line"></div>
-    <div class="r-row" style="color:red;font-weight:bold;"><span>退款方式：</span><span id="voidRefundMethod"></span></div>
-    <div class="r-row"><span>退款金額：</span><span id="voidRefundAmount"></span></div>
-    <div class="r-line"></div>
-    <div id="voidRemarkBox" style="display:none;">
-        <div class="r-row"><span>備註：</span><span id="voidRemark"></span></div>
-        <div class="r-line"></div>
-    </div>
-    <div class="r-row"><span>操作人：</span><span id="voidOperator"></span></div>
-    <div class="r-row"><span>Void 時間：</span><span id="voidCreateTime"></span></div>
-    <div class="r-barcode-block">
-        <svg id="voidRbarcode"></svg>
-        <div class="r-small" id="voidRbarcodeText"></div>
-    </div>
-    <div class="r-line"></div>
-    <div class="r-footer">
-        <div>www.8boxing.com.hk</div>
-        <div>Tel: 2330 2550</div>
-        <div style="margin-top:3px;color:red;font-weight:bold;">此單已取消 / THIS ORDER IS VOID</div>
-    </div>
-</div>
+<!-- ESC/POS 熱敏印表機腳本模板（printer.txt 參考）。generateEscPosScript() 會讀取此模板並替換 RECEIPT_NO / DATETIME / CUSTOMER / ITEMS 四個占位符；明細採「長項目獨佔整行」（品名 width:1，其餘 width:0）。 -->
+<script type="text/plain" id="printerTemplate">
+printer.alignCenter();
+printer.setTypeFontA();
+printer.bold(true);
+printer.println("8BOXING 泰拳用品店-銅鑼灣店");
+printer.bold(false);
+printer.alignCenter();
+printer.setTypeFontA();
+printer.println("銅鑼灣商業大廈1702室   Tel:23302550");
+printer.alignCenter();
+printer.setTypeFontA();
+printer.setTextDoubleHeight();
+printer.println("Receipt");
+printer.setTextNormal();
+printer.alignLeft();
+printer.setTypeFontA();
+printer.println("單號：{{RECEIPT_NO}}");
+printer.alignLeft();
+printer.setTypeFontA();
+printer.println("日期：{{DATETIME}}");
+printer.alignLeft();
+printer.setTypeFontA();
+printer.println("客戶：{{CUSTOMER}}");
+printer.println(("- - ".repeat(Math.ceil(48/4)+1)).slice(0,48));
+printer.tableCustom([{ text: "項目", align: "LEFT", width: 1/5 }, { text: "數目", align: "RIGHT", width: 1/5 }, { text: "售價", align: "RIGHT", width: 1/5 }, { text: "-%", align: "RIGHT", width: 1/5 }, { text: "小計", align: "RIGHT", width: 1/5 }]);
+{{ITEMS}}
+printer.println("*".repeat(48));
+printer.alignLeft();
+printer.setTypeFontA();
+printer.println("(1)貨品可不退回現金\n");
+printer.alignLeft();
+printer.setTypeFontA();
+printer.println("(2)所有退貨商品必須保持全新、未使用狀態，請於七天內大同此發票辦理");
+printer.alignLeft();
+printer.setTypeFontA();
+printer.println("(3)8BOXING拒絕退換每個貨品之權利");
+printer.alignCenter();
+printer.setTypeFontA();
+printer.println("**Thank You**");
+printer.alignCenter();
+printer.setTypeFontA();
+printer.println("wwww.8boxing.com.hk");
+printer.partialCut();
+</script>
 
 <!-- Toast 提示 -->
 <div class="toast" id="toast"></div>
@@ -985,7 +1054,7 @@ function renderTable(){
             '<td><input class="cell-input price-input" type="number" min="0" step="0.01" value="'+Math.round(item.price)+'" onchange="updatePrice('+idx+',this.value)"></td>'+
             '<td><input class="cell-input qty-input" type="number" min="1" value="'+item.num+'" onchange="updateQty('+idx+',this.value)"></td>'+
             '<td><input class="cell-input disc-input" type="number" min="0" max="100" value="'+item.discount+'" onchange="updateDisc('+idx+',this.value)"></td>'+
-            '<td class="subtotal-cell">'+sub+'</td>';
+            '<td><input class="cell-input subtotal-input" type="number" min="0" step="0.01" value="'+sub+'" placeholder="'+sub+'" onfocus="this.select()" onclick="this.select()" oninput="updateSubtotal('+idx+',this.value)" onchange="updateSubtotal('+idx+',this.value)"></td>';
         tb.appendChild(tr);
     });
     if(selectRow!==null && cart[selectRow]){ var rows=tb.querySelectorAll('tr'); if(rows[selectRow])rows[selectRow].classList.add('selected'); }
@@ -1066,6 +1135,18 @@ window.updateName=function(idx,val){ cart[idx].name=val.trim()||cart[idx].name; 
 window.updatePrice=function(idx,val){ var v=parseFloat(val); if(isNaN(v)||v<0)v=cart[idx].price; cart[idx].price=v; updateRowDOM(idx); calcMoney(); };
 window.updateQty=function(idx,val){ var v=parseInt(val)||1; cart[idx].num=Math.max(1,v); updateRowDOM(idx); calcMoney(); };
 window.updateDisc=function(idx,val){ var v=parseFloat(val)||0; cart[idx].discount=Math.min(100,Math.max(0,v)); updateRowDOM(idx); calcMoney(); };
+window.updateSubtotal=function(idx,val){
+    var item=cart[idx]; if(!item)return;
+    if(val===''||val===null)return;
+    var v=parseFloat(val); if(isNaN(v)||v<0)return;
+    var original=item.price*item.num; if(original<=0)return;
+    item.discount=(v>=original)?0:Math.round((1-v/original)*100);
+    item.subtotal=v;
+    var tb=document.querySelector('#orderTable tbody');
+    var tr=tb.querySelectorAll('tr')[idx]; if(!tr)return;
+    var discInput=tr.querySelector('.disc-input'); if(discInput)discInput.value=item.discount;
+    calcMoney();
+};
 
 function updateRowDOM(idx){
     var item=cart[idx]; if(!item)return;
@@ -1075,7 +1156,8 @@ function updateRowDOM(idx){
     var tds=tr.querySelectorAll('td');
     if(tds[1]){ var input=tds[1].querySelector('input'); if(input && input.value!==item.name)input.value=item.name; var ow=tds[1].querySelector('.stock-warn'); if(ow)ow.remove(); if(stockWarn)tds[1].insertAdjacentHTML('beforeend',stockWarn); }
     if(tds[2]){ var input=tds[2].querySelector('input'); if(input)input.value=item.price.toFixed(2); }
-    if(tds[5])tds[5].innerText=sub;
+    if(tds[4]){ var di=tds[4].querySelector('input'); if(di)di.value=item.discount; }
+    if(tds[5]){ var si=tds[5].querySelector('input.subtotal-input'); if(si)si.value=sub; }
 }
 window.updateRowDOM = updateRowDOM;
 
@@ -1094,19 +1176,104 @@ window.calcMoney = calcMoney;
 window.delSelect=function(){ if(selectRow===null){showToast('請先選取商品行');return;} cart.splice(selectRow,1);selectRow=null; renderTable();calcMoney(); };
 
 /* =====================================================================
- *  會員
+ *  會員（V18：查詢後彈消費明細 + 輸入≥3字元自動模糊搜尋下拉）
+ *  —— 移植自檔案2，其餘功能保持不變
  * ===================================================================== */
 window.searchMember=async function(){
     var phone=document.getElementById('phoneInput').value.trim(); if(!phone){showToast('請輸入電話');return;}
     var res=await supabase.from('members').select('name,phone').eq('phone',phone).single();
     var sq=safeQuery(res,'查詢會員');
     if(sq.isRLSError){showToast('⚠️ 資料庫權限錯誤');return;}
-    if(res.error||!res.data){showToast('沒有此會員');return;}
+    if(res.error||!res.data){showToast('沒有此會員');closeMemDropdown();return;}
     nowCustomer={name:res.data.name,phone:phone,isWalk:false};
-    document.getElementById('customerText').innerText='當前客戶: '+res.data.name+'｜📞'+phone;
+    document.getElementById('customerText').textContent='當前客戶: '+res.data.name+'｜📞'+phone;
     showToast('已選會員：'+res.data.name);
+    closeMemDropdown();
+    /* 命中後自動彈出最近 5 次消費明細 */
+    loadMemberHistory(phone,res.data.name);
 };
-window.resetCustomer=function(){ nowCustomer={name:'',phone:'',isWalk:true}; document.getElementById('customerText').innerText='當前客戶: 顧客 WALK IN'; document.getElementById('phoneInput').value=''; showToast('已恢復 WALK IN'); };
+
+/* ① 輸入框 oninput：去空格後 ≥3 字元自動模糊搜尋 members */
+window.onPhoneInputChange=async function(rawVal){
+    var val=(rawVal||'').replace(/\s+/g,''); /* 去所有空白 */
+    var dd=document.getElementById('memDropdown');
+    if(val.length<3){ dd.classList.remove('open'); dd.innerHTML=''; return; }
+    /* phone 或 name 模糊比對 */
+    var q=supabase.from('members').select('id,name,phone').or('phone.ilike.%'+val+'%,name.ilike.%'+val+'%').order('id',{ascending:true}).limit(8);
+    var res=await q;
+    var list=res.data||[];
+    if(list.length===0){ dd.innerHTML='<div class="md-empty">無符合「'+val+'」的會員</div>'; dd.classList.add('open'); return; }
+    var html='';
+    list.forEach(function(m){
+        var name=m.name.replace(/"/g,'&quot;'),ph=(m.phone||'').replace(/"/g,'&quot;');
+        html+='<div class="md-item" data-name="'+name+'" data-phone="'+ph+'" onclick="pickMemberFromDropdown(this)"><span class="md-name">'+m.name+'</span><span class="md-phone">'+(m.phone||'')+'</span></div>';
+    });
+    dd.innerHTML=html; dd.classList.add('open');
+};
+
+/* ② 點選下拉項目 → 設為客戶（不彈消費明細，保持輕量） */
+window.pickMemberFromDropdown=function(el){
+    var name=el.dataset.name,phone=el.dataset.phone;
+    nowCustomer={name:name,phone:phone,isWalk:false};
+    document.getElementById('customerText').textContent='當前客戶: '+name+'｜📞'+phone;
+    document.getElementById('phoneInput').value=phone;
+    closeMemDropdown();
+    showToast('已選會員：'+name);
+};
+
+function closeMemDropdown(){ var dd=document.getElementById('memDropdown'); if(dd){dd.classList.remove('open');dd.innerHTML='';} }
+window.closeMemDropdown=closeMemDropdown;
+
+/* 點頁面其他位置關閉下拉 */
+document.addEventListener('click',function(e){
+    var wrap=document.querySelector('.mem-search-wrap');
+    if(wrap && !wrap.contains(e.target)) closeMemDropdown();
+});
+
+/* ③ 查詢命中後：彈出該會員最近 5 次消費明細（只讀） */
+window.loadMemberHistory=async function(phone,name){
+    var info=document.getElementById('memHistoryInfo');
+    var list=document.getElementById('memHistoryList');
+    info.innerHTML='<div><b>會員：</b> '+(name||'')+'</div><div><b>電話：</b> '+(phone||'')+'</div><div><b>查詢中...</b></div>';
+    list.innerHTML='<p style="color:#999;padding:20px;text-align:center;">載入中...</p>';
+    openModal('memHistoryModal');
+
+    /* 取最近 5 筆有效（非 void）訂單，依建立時間倒序 */
+    var ordRes=await supabase.from('orders').select('id,total_amount,staff_name,create_at,status').eq('customer_phone',phone).eq('status','active').order('create_at',{ascending:false}).limit(5);
+    var orders=ordRes.data||[];
+    if(orders.length===0){
+        info.innerHTML='<div><b>會員：</b> '+(name||'')+'</div><div><b>電話：</b> '+(phone||'')+'</div><div><b>尚無消費紀錄</b></div>';
+        list.innerHTML='<div class="mh-empty">此會員暫無消費紀錄</div>';
+        return;
+    }
+    var orderIds=orders.map(function(o){return o.id;});
+    var itemRes=await supabase.from('order_item').select('order_id,product_name,name,barcode,single_price,price,qty,quantity,discount').in('order_id',orderIds);
+    var items=itemRes.data||[];
+    var byOrder={}; items.forEach(function(it){ (byOrder[it.order_id]=byOrder[it.order_id]||[]).push(it); });
+
+    var fldName=items.length?(items[0].product_name!==undefined?'product_name':(items[0].name!==undefined?'name':'product_name')):'product_name';
+    var fldPrice=items.length?(items[0].single_price!==undefined?'single_price':(items[0].price!==undefined?'price':'single_price')):'single_price';
+    var fldQty=items.length?(items[0].qty!==undefined?'qty':(items[0].quantity!==undefined?'quantity':'qty')):'qty';
+    var fldDisc=items.length?(items[0].discount!==undefined?'discount':'discount'):'discount';
+
+    info.innerHTML='<div><b>會員：</b> '+(name||'')+'</div><div><b>電話：</b> '+(phone||'')+'</div><div><b>近 5 次消費明細（共 '+orders.length+' 筆有效訂單）</b></div>';
+
+    var html='<table><thead><tr><th>日期</th><th>產品描述</th><th style="text-align:right;">售價</th><th style="text-align:right;">數量</th><th style="text-align:right;">折扣%</th><th style="text-align:right;">小計</th></tr></thead><tbody>';
+    orders.forEach(function(o){
+        var t=new Date(o.create_at).toLocaleString('zh-HK',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false});
+        html+='<tr class="mh-order-row"><td colspan="6">🧾 #'+o.id+' ｜ '+t+' ｜ '+o.staff_name+' ｜ <b>HK$ '+Math.round(Number(o.total_amount))+'</b></td></tr>';
+        var oItems=byOrder[o.id]||[];
+        if(oItems.length===0){ html+='<tr><td colspan="6" style="color:#999;text-align:center;font-size:12px;">（此單無商品明細）</td></tr>'; }
+        oItems.forEach(function(it){
+            var pr=Number(it[fldPrice])||0, qy=Number(it[fldQty])||0, dc=Number(it[fldDisc])||0, sub=roundMoney(pr*qy*(1-dc/100));
+            var pname=(it[fldName])||(it.name)||'未知商品';
+            html+='<tr><td></td><td class="mh-item-name" style="text-align:left;">'+pname+'</td><td style="text-align:right;">$'+pr.toFixed(2)+'</td><td style="text-align:right;">'+qy+'</td><td style="text-align:right;">'+(dc>0?dc+'%':'')+'</td><td style="text-align:right;">$'+sub.toFixed(2)+'</td></tr>';
+        });
+    });
+    html+='</tbody></table>';
+    list.innerHTML=html;
+};
+window.resetCustomer=function(){ nowCustomer={name:'',phone:'',isWalk:true}; document.getElementById('customerText').textContent='當前客戶: 顧客 WALK IN'; document.getElementById('phoneInput').value=''; showToast('已恢復 WALK IN'); };
 window.openAddMember=function(){ document.getElementById('newMemName').value=''; document.getElementById('newMemPhone').value=''; openModal('memberModal'); setTimeout(function(){document.getElementById('newMemName').focus();},100); };
 window.submitNewMember=async function(){
     var name=document.getElementById('newMemName').value.trim(), phone=document.getElementById('newMemPhone').value.trim();
@@ -1304,6 +1471,19 @@ window.confirmCheckout=async function(e){
             if(payInsertRes.error){console.warn('寫入 pay_records 警告：',payInsertRes.error.message);}
         }
 
+        /* Step 3.5: 將付款紀錄同步緩存到 localStorage（即使 RLS 擋咗 DB，重印都讀得到） */
+        try {
+            var cacheKey = 'paycache_' + orderId;
+            var cacheData = payGroup.map(function(p){return{type:p.type, money:p.money, change_amount:p.change_amount||0};});
+            localStorage.setItem(cacheKey, JSON.stringify(cacheData));
+            /* 同時存訂單基本資料（customer 等） */
+            localStorage.setItem('ordercache_' + orderId, JSON.stringify({
+                customer_name: nowCustomer.isWalk ? '' : (nowCustomer.name||''),
+                customer_phone: nowCustomer.isWalk ? '' : (nowCustomer.phone||''),
+                staff_name: staffName
+            }));
+        } catch(e) { console.warn('緩存付款紀錄失敗（不影響結帳）:', e); }
+
         /* Step 4: 列印小票（完全解耦，失敗不影響訂單） */
         try {
             fillReceipt(orderId,createTimeStr,staffName);
@@ -1353,17 +1533,23 @@ function fillReceipt(oid,time,staffName){
         var html='';
         cart.forEach(function(g){
             var sub=(g.subtotal||calcLineSubtotal(g)).toFixed(2);
-            var discText=(g.discount&&g.discount>0)?' (折扣 '+g.discount+'%)':'';
-            html+='<div class="r-item r-grow"><span class="r-item-name">'+(g.name||'')+'</span></div><div class="r-item r-grow r-small"><span>'+g.num+' x $'+g.price.toFixed(2)+discText+'</span><span>$'+sub+'</span></div>';
+            var discText=(g.discount&&g.discount>0)?' (-'+g.discount+'%)':'';
+            /* 長項目獨佔整行：第一行只放品名（word-break 自動換行），
+               第二行放 數量×售價[折扣] 與 小計，避免擠壓右側欄位 */
+            html+='<div class="r-item r-item-line"><span class="r-item-name">'+(g.name||'(未知商品)')+'</span></div>'
+                + '<div class="r-item r-grow r-small r-item-meta"><span>'+g.num+' x $'+g.price.toFixed(2)+discText+'</span><span class="r-item-sub">$'+sub+'</span></div>';
         });
         document.getElementById('rlist').innerHTML=html;
         document.getElementById('rtotal').innerText='HK$ '+(totalNeedPay||0);
         document.getElementById('rpaid').innerText='HK$ '+(payGroup.reduce(function(s,i){return s+i.money;},0)).toFixed(2);
 
-        var payText=payGroup.map(function(p){
-            var c=p.change_amount>0?' (實收 $'+(p.money+p.change_amount).toFixed(2)+' / 找贖 $'+p.change_amount.toFixed(2)+')':'';
-            return p.type+' HK$'+p.money.toFixed(2)+c;
-        }).join(' / ');
+        var payText = (payGroup && payGroup.length > 0)
+            ? payGroup.map(function(p){
+                var c=p.change_amount>0?' (實收 $'+(p.money+p.change_amount).toFixed(2)+' / 找贖 $'+p.change_amount.toFixed(2)+')':'';
+                var t = p.type && String(p.type).trim() ? String(p.type).trim() : 'Cash'; /* 兜底，絕不顯示「未知」 */
+                return t+' HK$'+Number(p.money||0).toFixed(2)+c;
+              }).join(' / ')
+            : ('Cash HK$' + (totalNeedPay||0).toFixed(2)); /* payGroup 完全空時兜底 */
         document.getElementById('rpayway').innerText=payText;
         document.getElementById('rbarcodeText').innerText=rtn;
         document.getElementById('rbarcode').innerHTML='<rect width="100%" height="40" fill="white"/><text x="50%" y="50%" text-anchor="middle" font-size="28" font-family="Courier New">'+rtn+'</text>';
@@ -1374,6 +1560,62 @@ function fillReceipt(oid,time,staffName){
     }
 }
 window.fillReceipt = fillReceipt;
+
+/* =====================================================================
+ *  ★★★ 產出 ESC/POS 熱敏印表機腳本（printer.txt 格式）★★★
+ *  - 讀取 <script id="printerTemplate"> 模板，替換 {{RECEIPT_NO}} /
+ *    {{DATETIME}} / {{CUSTOMER}}，並把 {{ITEMS}} 替換為由購物車產生的
+ *    printer.tableCustom(...) 明細列（長項目 width:1 獨佔整行）。
+ *  - 回傳完整 Node.js 腳本字串，可存成 .js 直接執行（需 npm i node-thermal-printer）。
+ *  用法：
+ *    var script = generateEscPosScript(cart, {
+ *        receiptNo:'RTAA000123', datetime:'25/8/2026 14:05:37',
+ *        customer:'Walk In', total:900, paid:900, payText:'Cash HK$900'
+ *    });
+ *    console.log(script);   // 複製貼到 Node.js 端執行
+ * ===================================================================== */
+window.generateEscPosScript = function(cartItems, order){
+    cartItems = cartItems || cart || [];
+    order = order || {};
+    var tplEl = document.getElementById('printerTemplate');
+    if(!tplEl){ console.error('printerTemplate 不存在'); return ''; }
+    var tpl = tplEl.textContent || tplEl.innerText || '';
+    var pad = function(n){ return String(n<10?'0'+n:n); };
+    var now = order.datetime || (function(){
+        var d=new Date(); return d.getDate()+'/'+pad(d.getMonth()+1)+'/'+d.getFullYear()+' '+pad(d.getHours())+':'+pad(d.getMinutes())+':'+pad(d.getSeconds());
+    })();
+    var rno = order.receiptNo || ('RTAA'+(order.id?String(order.id).padStart(6,'0'):'000001'));
+    var cust = order.customer || (nowCustomer&&!nowCustomer.isWalk?(nowCustomer.name||'')+' / '+(nowCustomer.phone||''):'Walk In');
+
+    /* 產生每項明細的 tableCustom 呼叫（長項目 width:1 獨佔整行） */
+    var lines=[];
+    cartItems.forEach(function(g){
+        var price=Number(g.price)||0, qty=Number(g.num)||0, disc=Number(g.discount)||0;
+        var sub=Math.round((price*qty*(1-disc/100))*100)/100;
+        var name=String(g.name||'').replace(/"/g,'\\"');
+        var discStr=disc>0?String(disc):'';
+        var subStr='$'+sub.toFixed(2);
+        /* 品名 width:1（佔滿整行自動換行），其餘 width:0 跟隨內容貼右側 */
+        lines.push('printer.tableCustom([{ text: "'+name+'", align: "LEFT", width: 1 }, { text: "'+qty+'", align: "RIGHT", width: 0 }, { text: "$'+price.toFixed(2)+'", align: "RIGHT", width: 0 }, { text: "'+discStr+'", align: "RIGHT", width: 0 }, { text: "'+subStr+'", align: "RIGHT", width: 0 }]);');
+    });
+    var itemsBlock = lines.join('\n');
+
+    tpl = tpl.replace(/\{\{RECEIPT_NO\}\}/g, rno)
+             .replace(/\{\{DATETIME\}\}/g, now)
+             .replace(/\{\{CUSTOMER\}\}/g, cust)
+             .replace(/\{\{ITEMS\}\}/g, itemsBlock);
+
+    /* 包成可直接執行的 Node.js 腳本（需已 npm i node-thermal-printer） */
+    var wrap =
+'const { ThermalPrinter, PrinterTypes } = require("node-thermal-printer");\n'+
+'const printer = new ThermalPrinter({ type: PrinterTypes.EPSON, interface: "tcp://192.168.1.100", options: { timeout: 3000 } });\n'+
+'(async () => {\n'+
+'    await printer.isPrinterConnected();\n'+
+'%BODY%\n'+
+'    process.exit(0);\n'+
+'})().catch(e=>{ console.error(e); process.exit(1); });';
+    return wrap.replace('%BODY%', tpl.replace(/^/gm,'    '));
+};
 
 /* =====================================================================
  *  重印小票 v6.4 — 修復版
@@ -1399,8 +1641,46 @@ window.reprintReceipt = async function(prefilledOrderId) {
         var itemsRes = await supabase.from('order_item').select('*').eq('order_id',orderId);
         var items = itemsRes.data || [];
 
-        var payRes = await supabase.from('pay_records').select('*').eq('order_id',orderId);
-        var pays = payRes.data || [];
+        /* ---------- 重建 payGroup：緩存優先 → DB → 兜底 ---------- */
+        /* ① 先試 localStorage 緩存（結帳時已存入，最可靠，唔受 RLS 影響） */
+        var pays = [];
+        try {
+            var cached = localStorage.getItem('paycache_' + orderId);
+            if (cached) { pays = JSON.parse(cached) || []; console.log('[reprint] 使用緩存付款紀錄', orderId, pays); }
+        } catch(e) { pays = []; }
+
+        /* ② 緩存冇 → 試 DB（可能被 RLS main-policy 擋咗 → 403 → data=null） */
+        if (pays.length === 0) {
+            var payRes = await supabase.from('pay_records').select('*').eq('order_id',orderId);
+            if (payRes.error) {
+                console.warn('[reprint] pay_records 查詢失敗（可能 RLS 攔截）:', payRes.error.message);
+            }
+            var dbPays = (payRes && payRes.data) || [];
+            if (dbPays.length > 0) {
+                var fldPT=(dbPays[0].pay_type!==undefined)?'pay_type':'type';
+                var fldAmt=(dbPays[0].amount!==undefined)?'amount':'amount';
+                var fldChg=(dbPays[0].change_amount!==undefined)?'change_amount':'change_amount';
+                pays = dbPays.map(function(p){return{type:p[fldPT],money:Number(p[fldAmt]),change_amount:Number(p[fldChg])||0};});
+                console.log('[reprint] 使用 DB 付款紀錄', pays);
+            }
+        }
+
+        /* ③ DB 都讀唔到（RLS 擋咗）→ 兜底：用整單金額當 Cash，確保唔會顯示「未知」 */
+        if (pays.length === 0) {
+            var fallbackTotal = Math.round(Number(order.total_amount)) || totalNeedPay || 0;
+            pays = [{ type: 'Cash', money: fallbackTotal, change_amount: 0 }];
+            console.warn('[reprint] pay_records 無資料/被 RLS 攔截，兜底顯示 Cash HK$' + fallbackTotal);
+        }
+
+        /* ④ 正規化：確保每筆都有有效 type（防 undefined → 「未知」） */
+        var VALID_PT = {'Cash':'Cash','八達通':'八達通','FPS':'FPS','VISA':'VISA','MASTER':'MASTER','AE':'AE','PayMe':'PayMe','支付寶':'支付寶','微信支付':'微信支付','Stripe':'Stripe','PayPal':'PayPal'};
+        pays = pays.map(function(p){
+            var t = p.type || p.pay_type || p.method || '';
+            if (VALID_PT[t]) return { type: t, money: Number(p.money)||Number(p.amount)||0, change_amount: Number(p.change_amount)||0 };
+            /* 中文直接入庫嘅值（如 "支付寶"）若唔喺白名單亦保留原值，避免變「未知」 */
+            if (t && typeof t === 'string' && t !== 'undefined') return { type: t, money: Number(p.money)||Number(p.amount)||0, change_amount: Number(p.change_amount)||0 };
+            return { type: 'Cash', money: Number(p.money)||Number(p.amount)||0, change_amount: 0 }; /* 最終兜底 */
+        });
 
         /* 暫存當前購物車 */
         var savedCart=cart, savedPayGroup=payGroup, savedCustomer=nowCustomer;
@@ -1412,10 +1692,7 @@ window.reprintReceipt = async function(prefilledOrderId) {
             return {barcode:it.barcode||'',name:it.product_name||it.name||'未知',price:pr,num:qy,discount:dc,subtotal:roundMoney(pr*qy*(1-dc/100))};
         });
 
-        var fldPT=(pays.length>0&&pays[0].pay_type!==undefined)?'pay_type':'type';
-        var fldAmt=(pays.length>0&&pays[0].amount!==undefined)?'amount':'amount';
-        var fldChg=(pays.length>0&&pays[0].change_amount!==undefined)?'change_amount':'change_amount';
-        payGroup = pays.map(function(p){return{type:p[fldPT],money:Number(p[fldAmt]),change_amount:Number(p[fldChg])||0};});
+        payGroup = pays;
         nowCustomer={name:order.customer_name||'',phone:order.customer_phone||'',isWalk:!order.customer_name||order.customer_name==='WALK IN'};
         totalNeedPay = Math.round(Number(order.total_amount));
 
@@ -1474,8 +1751,19 @@ window.voidReceipt = async function(prefilledOrderId) {
     var itemsRes = await supabase.from('order_item').select('*').eq('order_id',orderId);
     var items = itemsRes.data || [];
 
-    var payRes = await supabase.from('pay_records').select('*').eq('order_id',orderId);
-    var pays = payRes.data || [];
+    /* 讀付款紀錄：緩存優先 → DB → 兜底（同 reprintReceipt 邏輯一致，防 RLS 攔截導致「無/未知」） */
+    var pays = [];
+    try { var vc = localStorage.getItem('paycache_' + orderId); if (vc) pays = JSON.parse(vc) || []; } catch(e) {}
+    if (pays.length === 0) {
+        var payRes = await supabase.from('pay_records').select('*').eq('order_id',orderId);
+        var dbPays = (payRes && payRes.data) || [];
+        if (dbPays.length > 0) {
+            var fldPT=(dbPays[0].pay_type!==undefined)?'pay_type':'type';
+            var fldAmt=(dbPays[0].amount!==undefined)?'amount':'amount';
+            pays = dbPays.map(function(p){return{type:p[fldPT],money:Number(p[fldAmt]),change_amount:Number(p[fldChg])||0};});
+        }
+    }
+    if (pays.length === 0) { pays = [{ type: 'Cash', money: Math.round(Number(order.total_amount)) || 0, change_amount: 0 }]; }
 
     voidOrderData = order;
     voidItemsData = items;
@@ -1483,10 +1771,8 @@ window.voidReceipt = async function(prefilledOrderId) {
 
     var infoBox = document.getElementById('voidInfoBox');
     var createTime = new Date(order.create_at).toLocaleString('zh-HK',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false});
-    var fldPT=(pays.length>0&&pays[0].pay_type!==undefined)?'pay_type':'type';
-    var fldAmt=(pays.length>0&&pays[0].amount!==undefined)?'amount':'amount';
-    var payStr = pays.map(function(p){return p[fldPT]+' HK$'+Number(p[fldAmt]).toFixed(2);}).join(' / ');
-    if(!payStr)payStr='無';
+    var payStr = pays.map(function(p){return (p.type||'Cash')+' HK$'+Number(p.money||0).toFixed(2);}).join(' / ');
+    if(!payStr)payStr='Cash HK$'+(Math.round(Number(order.total_amount))||0).toFixed(2);
     var totalQty = items.reduce(function(s,it){return s+(Number(it.qty)||Number(it.quantity)||0);},0);
 
     infoBox.innerHTML =
@@ -1538,9 +1824,12 @@ function printVoidReceipt(order,items,pays,refundMethod,remark,operator){
     try {
         var savedCart=cart,savedPayGroup=payGroup,savedCustomer=nowCustomer;
         cart=items.map(function(it){var pr=Number(it.single_price)||Number(it.price)||0;var qy=Number(it.qty)||Number(it.quantity)||0;var dc=Number(it.discount)||0;return{barcode:it.barcode||'',name:it.product_name||it.name||'未知',price:pr,num:qy,discount:dc,subtotal:roundMoney(pr*qy*(1-dc/100))};});
-        var fldPT=(pays.length>0&&pays[0].pay_type!==undefined)?'pay_type':'type';
-        var fldAmt=(pays.length>0&&pays[0].amount!==undefined)?'amount':'amount';
-        payGroup=pays.map(function(p){return{type:p[fldPT],money:Number(p[fldAmt])};});
+        /* 直接用確定欄位名，兼容 type / pay_type，並兜底 Cash（防 RLS 攔截導致 pays 空/髒） */
+        payGroup=(pays||[]).map(function(p){
+            var t=p.type||p.pay_type||p.method||''; if(!t||t==='undefined')t='Cash';
+            return{type:t, money:Number(p.money)||Number(p.amount)||0};
+        });
+        if(payGroup.length===0){payGroup=[{type:'Cash', money:Math.round(Number(order.total_amount))||0}];}
         nowCustomer={name:order.customer_name||'',phone:order.customer_phone||'',isWalk:!order.customer_name||order.customer_name==='WALK IN'};
         totalNeedPay=Math.round(Number(order.total_amount));
 
@@ -1557,13 +1846,15 @@ function printVoidReceipt(order,items,pays,refundMethod,remark,operator){
         document.getElementById('voidCreateTime').innerText=voidTime;
         if(remark){document.getElementById('voidRemark').innerText=remark;document.getElementById('voidRemarkBox').style.display='block';}
         else{document.getElementById('voidRemarkBox').style.display='none';}
-        document.getElementById('voidRpayway').innerText=payGroup.map(function(p){return p.type+' HK$'+p.money.toFixed(2);}).join(' / ')||'無';
+        document.getElementById('voidRpayway').innerText = (payGroup && payGroup.length>0)
+            ? payGroup.map(function(p){return (p.type||'Cash')+' HK$'+Number(p.money||0).toFixed(2);}).join(' / ')
+            : ('Cash HK$'+(totalNeedPay||0).toFixed(2));
 
         var html='';
         cart.forEach(function(g){html+='<div class="r-item r-grow"><span class="r-item-name">'+g.name+'</span></div><div class="r-item r-grow r-small"><span>'+g.num+' x $'+g.price.toFixed(2)+'</span><span>$'+(g.subtotal||0).toFixed(2)+'</span></div>';});
         document.getElementById('voidRlist').innerHTML=html;
         document.getElementById('voidRbarcodeText').innerText=rtn;
-        document.getElementById('voidRbarcode').innerHTML='<rect width="100%" height="40" fill="white"/><text x="50%" y="50%" text-anchor="middle" font-size="28" font-family="Courier New">'+rtn+'</text>';
+        
         document.getElementById('voidRbarcode').setAttribute('width','100%');
         document.getElementById('voidRbarcode').setAttribute('height','40');
 
@@ -2335,9 +2626,27 @@ window.addStockFromCart = async function() {
 };
 
 /* =====================================================================
+ *  🔟 全單9折（購物車每項折扣% 設為 10）
+ *  - 將 cart 每一項的 discount 設為 10（九折 = 10% 折扣）
+ *  - 重算每項小計與整單合計
+ *  - 空購物車時提示；操作前 confirm 確認
+ * ===================================================================== */
+window.applyAllDiscount10 = function() {
+    if (!cart || cart.length === 0) { showToast('購物車沒有商品'); return; }
+    if (!confirm(
+        '確定要將購物車全部 ' + cart.length + ' 項商品套用【全單9折】嗎？\n\n' +
+        '（每項折扣% 將設為 10）'
+    )) { return; }
+    for (var i = 0; i < cart.length; i++) { cart[i].discount = 10; }
+    renderTable(); calcMoney();
+    showToast('✅ 已套用全單9折（每項折扣 10%）', 3000);
+    console.log('🔟 全單9折已套用：' + cart.length + ' 項，折扣% 設為 10');
+};
+
+/* =====================================================================
  *  初始化
  * ===================================================================== */
-renderTable(); calcMoney(); showToast('系統就緒 ✅ v6.4');
+renderTable(); calcMoney(); showToast('系統就緒 ✅ v6.5');
 console.log('✅ POS 系統 v6.4 載入完成（CWB / 重印 + Void + 支出 + 進階查詢 + 找贖 + Float + 快捷搜尋 + Email報告 / 結帳列印解耦修復）');
 </script>
 </body>
