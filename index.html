@@ -1234,7 +1234,7 @@ function updateRowDOM(idx){
     var stockWarn=(item.stock>0 && item.num>item.stock)?'<div class="stock-warn">⚠ 庫存不足（剩'+item.stock+'）</div>':'';
     var tds=tr.querySelectorAll('td');
     if(tds[1]){ var input=tds[1].querySelector('input'); if(input && input.value!==item.name)input.value=item.name; var ow=tds[1].querySelector('.stock-warn'); if(ow)ow.remove(); if(stockWarn)tds[1].insertAdjacentHTML('beforeend',stockWarn); }
-    if(tds[2]){ var input=tds[2].querySelector('input'); if(input)input.value=item.price.toFixed(2); }
+    if(tds[2]){ var input=tds[2].querySelector('input'); if(input)input.value=item.price.toFixed(0); }
     if(tds[4]){ var di=tds[4].querySelector('input'); if(di)di.value=item.discount; }
     if(tds[5]){ var si=tds[5].querySelector('input.subtotal-input'); if(si)si.value=sub; }
 }
