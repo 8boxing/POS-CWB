@@ -109,6 +109,9 @@ tbody tr td input.subtotal-input{width:72px;text-align:right;font-weight:bold;}
     align-items:center;justify-content:center;z-index:9999;
 }
 .modal.open{display:flex;}
+/* ★ 修正1：Void 確認彈窗永遠高於營業額查詢窗，確保點選 Void 時顯示在最前面 */
+#voidModal{ z-index:10001; }
+#voidModal .modal-inner{ border:2px solid #dc3545; }
 .modal-inner{
     background:#fff;padding:24px;width:640px;max-width:92%;
     border-radius:10px;box-shadow:0 10px 40px rgba(0,0,0,.25);
@@ -370,6 +373,18 @@ tbody tr td input.subtotal-input{width:72px;text-align:right;font-weight:bold;}
 </style>
 </head>
 <body>
+
+<!-- ========== ★★★ 登入遮罩（新增，其餘不動）★★★ ========== -->
+<div id="loginBox" style="position:fixed;inset:0;background:#f5f7fa;z-index:99999;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:sans-serif;">
+  <h2 style="color:#0052cc;margin-bottom:14px;">🥊 POS 登入</h2>
+  <input id="lgEmail" type="email" placeholder="Email" style="margin:6px;padding:10px;width:280px;border:1px solid #bbb;border-radius:4px;font-size:14px;"><br>
+  <input id="lgPwd" type="password" placeholder="密碼" style="margin:6px;padding:10px;width:280px;border:1px solid #bbb;border-radius:4px;font-size:14px;"><br>
+  <button onclick="posLogin()" style="margin:12px;padding:10px 36px;background:#0052cc;color:#fff;border:none;border-radius:4px;font-weight:bold;font-size:15px;cursor:pointer;">登入</button>
+  <p id="lgMsg" style="color:red;min-height:20px;"></p>
+</div>
+<!-- ========== ★★★ 登入遮罩結束 ★★★ ========== -->
+
+
 
 <!-- 頂部列 -->
 <div class="top-bar">
@@ -767,6 +782,38 @@ tbody tr td input.subtotal-input{width:72px;text-align:right;font-weight:bold;}
     </div>
 </div>
 
+
+<!-- ★★★ Void 收據（補齊，平時隱藏；與 printVoidReceipt() 所用 id 一一對應）★★★ -->
+<div class="receipt" id="voidReceiptDom">
+    <div class="r-center" style="color:red;font-weight:bold;font-size:16px;">✖ VOID / 已取消 ✖</div>
+    <div class="r-title" id="voidShopName">8BOXING 泰拳用品店-銅鑼灣店</div>
+    <div class="r-line"></div>
+    <div class="r-row"><span>單號：</span><span id="voidRid" class="r-bold"></span></div>
+    <div class="r-row"><span>日期：</span><span id="voidRtime"></span></div>
+    <div class="r-row"><span>營業員：</span><span id="voidRstaff"></span></div>
+    <div class="r-row"><span>客戶：</span><span id="voidRcust"></span></div>
+    <div class="r-row"><span>原金額：</span><span id="voidRtotal"></span></div>
+    <div class="r-row"><span>退款方式：</span><span id="voidRefundMethod"></span></div>
+    <div class="r-row"><span>退款金額：</span><span id="voidRefundAmount"></span></div>
+    <div class="r-row"><span>操作人：</span><span id="voidOperator"></span></div>
+    <div class="r-row"><span>操作時間：</span><span id="voidCreateTime"></span></div>
+    <div id="voidRemarkBox" style="display:none;"><div class="r-row"><span>備註：</span><span id="voidRemark"></span></div></div>
+    <div class="r-line"></div>
+    <div id="voidRlist"></div>
+    <div class="r-line"></div>
+    <div class="r-row"><span>付款方式：</span><span id="voidRpayway"></span></div>
+    <div class="r-barcode-block">
+        <svg id="voidRbarcode"></svg>
+        <div class="r-small" id="voidRbarcodeText"></div>
+    </div>
+    <div class="r-line"></div>
+    <div class="r-footer">
+        <div>www.8boxing.com.hk</div>
+        <div>Tel: 2330 2550</div>
+        <div style="margin-top:3px;color:red;">**VOID 作廢單據**</div>
+    </div>
+</div>
+
 <!-- ESC/POS 熱敏印表機腳本模板（printer.txt 參考）。generateEscPosScript() 會讀取此模板並替換 RECEIPT_NO / DATETIME / CUSTOMER / ITEMS 四個占位符；明細採「長項目獨佔整行」（品名 width:1，其餘 width:0）。 -->
 <script type="text/plain" id="printerTemplate">
 printer.alignCenter();
@@ -883,6 +930,38 @@ printer.partialCut();
 </div>
 
 <script>
+
+/* ========== ★★★ 登入邏輯（新增，其餘不動）★★★ ========== */
+/* 取得 supabase client：優先用原程式碼建立的 window.sb，否則用全域 supabase */
+function _sbClient(){
+  return window.sb || window.supabase;
+}
+async function posLogin(){
+  var email = document.getElementById('lgEmail').value;
+  var pwd = document.getElementById('lgPwd').value;
+  if(!email||!pwd){ document.getElementById('lgMsg').innerText = '請填寫 Email 與密碼'; return; }
+  document.getElementById('lgMsg').innerText = '';
+  try {
+    var client = _sbClient();
+    if(!client || !client.auth){ document.getElementById('lgMsg').innerText = '系統初始化中，請稍後再試'; return; }
+    var { data, error } = await client.auth.signInWithPassword({ email: email, password: pwd });
+    if(error){ document.getElementById('lgMsg').innerText = error.message; return; }
+    document.getElementById('loginBox').style.display = 'none';
+  } catch(e) {
+    document.getElementById('lgMsg').innerText = '登入失敗：' + (e && e.message ? e.message : e);
+  }
+}
+/* 頁面載入時若已有登入 session（重新整理不斷線），直接隱藏登入頁 */
+window.addEventListener('DOMContentLoaded', async function(){
+  try {
+    var client = _sbClient();
+    if(client && client.auth){ var { data } = await client.auth.getSession(); if(data && data.session){ document.getElementById('loginBox').style.display = 'none'; } }
+  } catch(e) {}
+});
+/* ========== ★★★ 登入邏輯結束 ★★★ ========== */
+
+
+
 /* =====================================================================
  *  Supabase 設定
  * ===================================================================== */
@@ -1786,6 +1865,9 @@ window.voidReceipt = async function(prefilledOrderId) {
 
     document.getElementById('voidRefundSelect').value='';
     document.getElementById('voidRemarkInput').value='';
+    /* ★ 修正2：暫時降低營業額查詢窗層級，令 Void 確認彈窗顯示在最前面 */
+    var saleModalEl = document.getElementById('saleModal');
+    if (saleModalEl) saleModalEl.style.zIndex = '9998';
     openModal('voidModal');
     setTimeout(function(){document.getElementById('voidRefundSelect').focus();},100);
 };
@@ -1812,11 +1894,15 @@ window.confirmVoid = async function(e) {
             if(curRes.data) await supabase.from('products').update({stock:(Number(curRes.data.stock)||0)+qty}).eq('id',pid);
         }
 
-        printVoidReceipt(order,items,pays,refundMethod,remark,staffName);
+        /* ★ 修正3：唔再自動彈出 Void 收據視窗/叫 printVoidReceipt()，
+           Void 成功後直接關窗，再由下面 alert 提示，之後可喺「今日營業額」查詢該單展開正確嘅 Void 單視窗 */
         closeModal('voidModal');
         voidOrderData=null; voidItemsData=null; voidPaysData=null;
-        if(document.getElementById('saleModal').classList.contains('open')) loadTodayDetail();
-        alert("✅ Void 成功！\n單號: #"+orderId+"\n退款方式: "+refundMethod);
+        /* 恢復營業額查詢窗原本嘅層級 */
+        var saleModalEl = document.getElementById('saleModal');
+        if (saleModalEl) saleModalEl.style.zIndex = '';
+        if(saleModalEl && saleModalEl.classList.contains('open')) loadTodayDetail();
+        alert("✅ Void 成功！\n單號: #"+orderId+"\n退款方式: "+refundMethod+"\n\n可喺「今日營業額」點選此單查看 Void 明細");
     } catch(err) { console.error(err); alert("Void 失敗："+err.message); }
 };
 
