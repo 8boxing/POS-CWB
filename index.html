@@ -641,7 +641,7 @@ tbody tr td input.subtotal-input{width:72px;text-align:right;font-weight:bold;}
         <h3>🔥 常用商品搜尋</h3>
         <div class="adv-query-row">
             <label>關鍵字</label>
-            <input type="text" id="quickSearchInput" placeholder="輸入 1-4 個關鍵字，用逗號分隔（例如：拳套,12oz）" style="flex:1;padding:8px 10px;border:2px solid #28a745;border-radius:4px;font-size:14px;">
+            <input type="text" id="quickSearchInput" placeholder="輸入 1-3 個關鍵字，用逗號分隔（例如：拳套,12oz）" style="flex:1;padding:8px 10px;border:2px solid #28a745;border-radius:4px;font-size:14px;">
         </div>
         <div class="search-hint">💡 多個關鍵字用「,」分隔，會同時符合所有關鍵字（AND 邏輯）。點擊搜尋結果直接加入購物車。</div>
         <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
@@ -975,7 +975,7 @@ var supabase = window.sb;
 
 /* 診斷 */
 window.checkConn = async function() {
-    console.log('===== Supabase 連線診斷 =====');
+ console.log('===== Supabase 連線診斷 =====');
     var tables = ['products','members','orders','order_item','pay_records','staff','expenses','void_records','settings'];
     for (var i = 0; i < tables.length; i++) {
         try {
@@ -2080,53 +2080,161 @@ window.clearQuickSearch = function(){
 };
 
 /* 執行搜尋（AND 邏輯：同時符合所有關鍵字）
-   ★ 修復 v6.5：伺服器端 .or(ilike) 搜尋（忽略大小寫），limit(50)，不再拉全表 + 本地 indexOf
-   —— 解決「輸入 primo 搜不到 Primo」 */
+ * ★ 修復版：伺服器端 .or(ilike) 搜尋（忽略大小寫）+ limit(50)
+ * ★ 渲染改用 data-* 屬性 + 事件委派，解決特殊字元（–()）導致「點選冇反應」
+ */
 window.runQuickSearch = async function(){
-    const raw = document.getElementById('quickSearchInput').value.trim();
-  const box = document.getElementById('quickSearchResults');
-  if(!raw){ box.innerHTML = '<div style="padding:20px;text-align:center;color:#888;">請輸入關鍵字</div>'; return; }
+    var rawInput = document.getElementById('quickSearchInput').value.trim();
+    if(!rawInput){showToast('請輸入關鍵字');return;}
 
-  // 拆關鍵字，全部轉小寫
-  const keys = raw.split(/[,，;；\s]+/).map(s=>s.toLowerCase()).filter(Boolean);
-  const firstKey = keys[0].replace(/%/g,'\\%').replace(/_/g,'\\_');
-  if(!firstKey){ box.innerHTML = '<div style="padding:20px;text-align:center;color:#888;">請輸入關鍵字</div>'; return; }
+    // 支援逗號、中文逗號、空格作分隔符
+    var keywords = rawInput.split(/[,，\s]+/).map(function(k){return k.trim().toLowerCase();}).filter(function(k){return k.length>0;});
+    if(keywords.length===0){showToast('請輸入有效的關鍵字');return;}
 
-  box.innerHTML = '<div style="padding:20px;text-align:center;color:#666;">搜尋中...</div>';
+    var box = document.getElementById('quickSearchResults');
+    box.innerHTML='<p style="color:#999;padding:20px;text-align:center;">搜尋中...</p>';
 
-  try {
-    // ★ 只問 DB 一次：第一個字眼，名稱 OR 條碼前綴，limit 200
-    const { data, error } = await supabase
-      .from('products')
-      .select('id,barcode,name,price,stock')
-      .or(`name.ilike.${firstKey}%,barcode.ilike.${firstKey}%`)
-      .limit(1000);   // 多撈啲，等之後前端過濾有糧食
+    // 用關鍵字做伺服器端 ilike 搜尋（忽略大小寫），最多 50 件
+    // 依 Supabase 規範：ilike 嘅萬用字元 % 同 _ 要用反斜線 escape
+    function esc(kw){ var out=''; for(var i=0;i<String(kw).length;i++){ var ch=String(kw).charAt(i); out += (ch==='%'||ch==='_') ? '\\' + ch : ch; } return out; }
+    var orClauses = keywords.map(function(kw){
+        var e = esc(kw);
+        return 'name.ilike.%' + e + '%,barcode.ilike.%' + e + '%';
+    }).join(',');
 
-    if(error) throw error;
-    let matched = data || [];
+    var q = supabase.from('products').select('id,barcode,name,price,stock');
+    if(orClauses){ q = q.or(orClauses); }
+    q = q.order('name').limit(1000);
 
-    // ★ 其餘關鍵字：全部用 JS 前端過濾（AND 邏輯，毫秒級，唔使再問 DB）
-    if(keys.length > 1){
-      matched = matched.filter(p => {
-        const str = ((p.name||'') + ' ' + (p.barcode||'')).toLowerCase();
-        return keys.every(k => str.includes(k));  // 全部命中
-      });
+    console.log('[runQuickSearch] keywords:', keywords, '| orClauses:', orClauses);
+    var res = await q;
+    if(res.error){alert('搜尋失敗：'+res.error.message);return;}
+    var allProducts = res.data || [];
+    console.log('[runQuickSearch] 伺服器回傳:', allProducts.length, '筆');
+
+    // 本地再過濾（確保多關鍵字 AND 邏輯 + 特殊字元兜底）
+    var matched = allProducts.filter(function(p){
+        var nameStr = (p.name||'').toLowerCase();
+        var barcodeStr = String(p.barcode||'').toLowerCase();
+        return keywords.every(function(kw){
+            return nameStr.indexOf(kw)>=0 || barcodeStr.indexOf(kw)>=0;
+        });
+    });
+
+    if(matched.length===0){
+        box.innerHTML='<p style="color:#999;padding:20px;text-align:center;">找不到符合「'+keywords.join(' + ')+'」的商品</p>';
+        return;
     }
 
-    if(!matched.length){ box.innerHTML = `<div style="padding:20px;text-align:center;color:#888;">找不到符合「${raw}」的商品</div>`; return; }
+    // ★ 關鍵修復：用 data-* 屬性攜帶資料，唔再用 inline onclick（避免 –() 等特殊字元爆 JS）
+    var html2='<div style="padding:6px 10px;background:#e8f8e8;font-size:12px;color:#28a745;">找到 '+matched.length+' 件符合「'+keywords.join(' + ')+'」的商品 → 點擊加入購物車，或點「✏️編輯」修改商品</div>';
+    html2+='<table><thead><tr><th>條碼</th><th>產品描述</th><th style="text-align:right;">售價</th><th style="text-align:right;">庫存</th><th style="text-align:center;">加入</th><th style="text-align:center;">編輯</th></tr></thead><tbody>';
+    matched.forEach(function(p){
+        var outOfStock = p.stock<=0 ? 'out-of-stock' : '';
+        var stockText = p.stock<=0 ? '<span style="color:#dc3545;">缺貨</span>' : String(p.stock);
+        // 將商品資料序列化到 data 屬性（特殊字元安全）
+        var dataAttr = encodeURIComponent(JSON.stringify({pid:p.id,barcode:String(p.barcode||''),name:String(p.name||''),price:Number(p.price)||0,stock:Number(p.stock)||0}));
+        html2+='<tr class="'+outOfStock+'" data-quick-product="'+dataAttr+'">'+
+              '<td class="qs-cell" style="cursor:pointer;">'+(p.barcode||'')+'</td>'+
+              '<td class="qs-cell" style="cursor:pointer;text-align:left;">'+(p.name||'')+'</td>'+
+              '<td style="text-align:right;">$'+Number(p.price).toFixed(2)+'</td>'+
+              '<td style="text-align:right;">'+stockText+'</td>'+
+              '<td style="text-align:center;color:#28a745;font-weight:bold;cursor:pointer;" class="qs-add">＋</td>'+
+              '<td style="text-align:center;"><button type="button" class="btn-edit-sm qs-edit" data-pid="'+p.id+'" data-barcode="'+dataAttr+'">✏️編輯</button></td></tr>';
+    });
+    html2+='</tbody></table>';
+    box.innerHTML=html2;
+    // 綁定點擊事件（事件委派）
+    bindQuickSearchClicks();
+};
 
-    box.innerHTML = `<div style="padding:6px 10px;background:#e8f8e8;font-size:12px;color:#28a755;">找到 ${matched.length} 件符合「${raw}」</div>` +
-      '<table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr style="background:#005b9f;color:#fff;"><th>條碼</th><th>產品</th><th>售價</th><th>庫存</th><th>加入</th><th>編輯</th></tr></thead><tbody>' +
-      matched.map(p => {
-        const sNum = Number(p.stock ?? 0), sStr = String(p.stock ?? 0);
-        const sh = sNum < 0 ? `<span style="color:#d00">${sStr}</span>` : sStr;
-        const d = encodeURIComponent(JSON.stringify({pid:p.id,barcode:p.barcode||'',name:p.name||'',price:Number(p.price)||0,stock:sNum}));
-        return `<tr data-quick-product="${d}" style="cursor:pointer;"><td>${p.barcode||''}</td><td style="text-align:left;">${p.name||''}</td><td style="text-align:right;">$${Number(p.price||0).toFixed(2)}</td><td style="text-align:right;">${sh}</td><td style="text-align:center;color:#28a755;font-weight:bold;">＋</td><td style="text-align:center;"><button class="qs-edit" data-pid="${p.id}" onclick="event.stopPropagation();openEditProduct(${p.id})">✏️</button></td></tr>`;
-      }).join('') + '</tbody></table>';
-  } catch(err) {
-    box.innerHTML = '<div style="padding:20px;text-align:center;color:#d00;">搜尋失敗，請重試</div>';
-  }
+/* ★ 事件委派：處理搜尋結果嘅點擊（加入購物車 / 編輯）
+ *   - 整行 .qs-cell 或 ＋ 掣 → 加入購物車
+ *   - ✏️編輯 掣 → stopPropagation，只開編輯
+ */
+function bindQuickSearchClicks(){
+    var box = document.getElementById('quickSearchResults');
+    if(!box || box.dataset.bound==='1'){return;} // 防止重複綁定
+
+    box.addEventListener('click', function(e){
+        var addBtn = e.target.closest && e.target.closest('.qs-add');
+        var editBtn = e.target.closest && e.target.closest('.qs-edit');
+        var cell = e.target.closest && e.target.closest('.qs-cell');
+        var row = e.target.closest && e.target.closest('tr[data-quick-product]');
+
+        // ✏️編輯：只開編輯，唔加入購物車
+        if(editBtn && row){
+            e.stopPropagation();
+            var dataAttr = editBtn.dataset.barcode || row.dataset.quickProduct;
+            var d = JSON.parse(decodeURIComponent(dataAttr));
+            openEditProductModal(d.pid, d.barcode, d.name, d.price, d.stock);
+            return;
+        }
+
+        // ＋ 掣 或 整行 cell → 加入購物車
+        if((addBtn || cell) && row){
+            var dataAttr2 = row.dataset.quickProduct;
+            if(!dataAttr2){ console.warn('[bindQuickSearchClicks] 缺少 data 屬性'); return; }
+            var pd = JSON.parse(decodeURIComponent(dataAttr2));
+            addQuickProduct(pd.pid, pd.barcode, pd.name, pd.price, pd.stock);
+        }
+    });
+    box.dataset.bound = '1';
+    console.log('[bindQuickSearchClicks] 事件委派已綁定');
 }
+window.bindQuickSearchClicks = bindQuickSearchClicks;
+
+
+/* 點擊搜尋結果 → 加入購物車 → 關閉彈窗 */
+window.addQuickProduct = function(pid,barcode,name,price,stock){
+    var exist=cart.find(function(x){return x.barcode===barcode;});
+    if(exist){ exist.num+=1; }
+    else { cart.push({pid:pid,barcode:barcode,name:name,price:price,num:1,discount:0,stock:stock}); }
+    renderTable(); calcMoney();
+    showToast('✅ 已加入：'+name);
+    closeModal('quickSearchModal');
+    setTimeout(function(){document.getElementById('barcode').focus();},100);
+};
+
+/* ★★★ 編輯商品（常用商品搜尋結果的「編輯」按鈕）★★★ */
+window._editProductData = null; /* 暫存目前編輯中的商品 */
+
+window.openEditProductModal = function(pid,barcode,name,price,stock){
+    window._editProductData = {pid:pid,barcode:barcode,name:name,price:Number(price),stock:Number(stock)||0};
+    document.getElementById('editProductInfo').innerHTML =
+        '<div><b>條碼：</b> '+(barcode||'(無)')+'</div>'+
+        '<div><b>商品 ID：</b> '+pid+'</div>';
+    document.getElementById('editPName').value = name||'';
+    document.getElementById('editPPrice').value = (price!=null)?Number(price):'';
+    document.getElementById('editPStock').value = (stock!=null)?Number(stock):'0';
+    openModal('editProductModal');
+    setTimeout(function(){document.getElementById('editPName').focus();},100);
+};
+
+window.submitEditProduct = async function(){
+    var d = window._editProductData;
+    if(!d || !d.pid){alert('編輯資料遺失，請重新操作');closeModal('editProductModal');return;}
+    var name   = (document.getElementById('editPName').value||'').trim();
+    var price  = parseFloat(document.getElementById('editPPrice').value);
+    var stock  = parseInt(document.getElementById('editPStock').value)||0;
+    if(!name){showToast('請填寫產品描述');return;}
+    if(isNaN(price)||price<0){showToast('請填寫有效的售價');return;}
+
+    var payload = {name:name, price:roundMoney(price), stock:stock};
+    var res = await supabase.from('products').update(payload).eq('id',d.pid);
+    if(res.error){
+        console.error('更新商品失敗：',res.error);
+        alert('更新失敗：'+res.error.message);return;
+    }
+    showToast('✅ 商品已更新：'+name);
+    closeModal('editProductModal');
+    window._editProductData = null;
+    /* 若搜尋結果仍開著，重新執行一次搜尋以刷新列表 */
+    var kwInput = document.getElementById('quickSearchInput');
+    if(kwInput && document.getElementById('quickSearchModal').classList.contains('open') && kwInput.value.trim()){
+        runQuickSearch();
+    }
+};
 
 /* 綁定編輯彈窗按鈕 */
 document.getElementById('editPSubmitBtn').addEventListener('click',function(){window.submitEditProduct();});
