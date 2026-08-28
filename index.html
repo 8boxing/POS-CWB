@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>零售系統 ‧ 正式雲端版 v6.4</title>
+<title>零售系統 ‧ 正式雲端版 v6.4 (V28 修復版)</title>
 
 <!-- Supabase JS -->
 <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
@@ -766,8 +766,8 @@ tbody tr td input.subtotal-input{width:72px;text-align:right;font-weight:bold;}
     <div class="r-row r-bold"><span>付款方式：</span><span id="rpayway"></span></div>
     <div class="r-line; r-bold"></div>
     <div class="r-barcode-block; r-bold">
-        <svg id="rbarcode"></svg>
-        <div class="r-small" id="rbarcodeText; r-bold"></div>
+        <svg id="rbarcode" xmlns="http://www.w3.org/2000/svg"></svg>
+        <div class="r-small"><span id="rbarcodeText" class="r-bold"></span></div>
     </div>
     <div class="r-line"></div>
     <div class="r-bold" style="text-align:center; font-size:16px;">
@@ -1527,15 +1527,23 @@ window.confirmCheckout=async function(e){
                 barcode:g.barcode
             });
             if(itemInsertRes.error){console.warn('寫入 order_item 警告：',itemInsertRes.error.message);}
-            /* 扣庫存 */
+            /* ★ V28: 扣庫存（decrement_stock 參數必須係 pid / qty，對應 DB 函數） */
             try {
-                await supabase.rpc('decrement_stock',{pid:g.pid,qty:g.num});
+                var rpcRes=await supabase.rpc('decrement_stock',{pid:g.pid,qty:g.num});
+                if(rpcRes.error){ console.warn('RPC decrement_stock 回傳錯誤（改用直接更新）：',rpcRes.error.message); }
+                else { console.log('decrement_stock OK -> product',g.pid,'qty',g.num); }
             } catch(rpcErr) {
                 console.warn('RPC decrement_stock 失敗，改用直接更新：',rpcErr);
-                var curStockRes=await supabase.from('products').select('stock').eq('id',g.pid).single();
-                if(curStockRes.data){
-                    await supabase.from('products').update({stock:Math.max(0,(Number(curStockRes.data.stock)||0)-g.num)}).eq('id',g.pid);
-                }
+                try {
+                    var curStockRes=await supabase.from('products').select('stock').eq('id',g.pid).single();
+                    if(curStockRes.data){
+                        var newStock=Math.max(0,(Number(curStockRes.data.stock)||0)-g.num);
+                        var updRes=await supabase.from('products').update({stock:newStock}).eq('id',g.pid);
+                        if(updRes.error){ console.error('直接更新 stock 失敗：',updRes.error.message); }
+                    } else if(curStockRes.error) {
+                        console.error('讀取 stock 失敗：',curStockRes.error.message);
+                    }
+                } catch(directErr){ console.error('扣庫存直接更新例外：',directErr); }
             }
         }
 
@@ -1547,7 +1555,11 @@ window.confirmCheckout=async function(e){
                 amount:payGroup[pi].money,
                 change_amount:payGroup[pi].change_amount||0
             });
-            if(payInsertRes.error){console.warn('寫入 pay_records 警告：',payInsertRes.error.message);}
+            if(payInsertRes.error){
+                /* ★ V28: 付款紀錄寫入失敗升級為 alert + Toast，唔再靜默 */
+                console.error('寫入 pay_records 失敗：',payInsertRes.error.message);
+                showToast('⚠️ 付款紀錄寫入失敗：'+payInsertRes.error.message,6000);
+            }
         }
 
         /* Step 3.5: 將付款紀錄同步緩存到 localStorage（即使 RLS 擋咗 DB，重印都讀得到） */
@@ -1601,41 +1613,69 @@ window.confirmCheckout=async function(e){
     }
 };
 
+/* ★ V28 修復：全部收據元素 null-safe，缺 ID 唔會爆紅，改為 warn */
 function fillReceipt(oid,time,staffName){
+    var _missing=[];
+    function setText(id,val){
+        var el=document.getElementById(id);
+        if(!el){ if(_missing.indexOf(id)<0)_missing.push(id); return; }
+        el.innerText=(val===undefined||val===null)?'':val;
+    }
+    function setHtml(id,val){
+        var el=document.getElementById(id);
+        if(!el){ if(_missing.indexOf(id)<0)_missing.push(id); return; }
+        el.innerHTML=(val===undefined||val===null)?'':val;
+    }
+    /* 用 createElementNS 安全塞 SVG 條碼 */
+    function setBarcode(rtn){
+        var bc=document.getElementById('rbarcode');
+        if(!bc){ if(_missing.indexOf('rbarcode')<0)_missing.push('rbarcode'); return; }
+        try {
+            while(bc.firstChild){ bc.removeChild(bc.firstChild); }
+            var SVGNS='http://www.w3.org/2000/svg';
+            var rect=document.createElementNS(SVGNS,'rect');
+            rect.setAttribute('width','100%'); rect.setAttribute('height','40'); rect.setAttribute('fill','white');
+            var text=document.createElementNS(SVGNS,'text');
+            text.setAttribute('x','50%'); text.setAttribute('y','50%');
+            text.setAttribute('text-anchor','middle'); text.setAttribute('font-size','28');
+            text.setAttribute('font-family','Courier New'); text.textContent=rtn;
+            bc.appendChild(rect); bc.appendChild(text);
+        } catch(svgErr){ console.warn('rbarcode 渲染失敗（不影響結帳）：',svgErr); }
+    }
     try {
         var rtn='RTAA'+String(oid).padStart(6,'0');
-        document.getElementById('rid').innerText=rtn;
-        document.getElementById('rtime').innerText=time||'';
-        document.getElementById('rstaff').innerText=staffName||'';
-        document.getElementById('rcust').innerText=nowCustomer.isWalk?'顧客 WALK IN':((nowCustomer.name||'')+' / '+(nowCustomer.phone||''));
+        setText('rid',rtn);
+        setText('rtime',time||'');
+        setText('rstaff',staffName||'');
+        setText('rcust',nowCustomer&&nowCustomer.isWalk?'顧客 WALK IN':(((nowCustomer&&nowCustomer.name)||'')+' / '+((nowCustomer&&nowCustomer.phone)||'')));
 
         var html='';
-        cart.forEach(function(g){
-            var sub=(g.subtotal||calcLineSubtotal(g)).toFixed(2);
+        (cart||[]).forEach(function(g){
+            var sub=(g.subtotal||(typeof calcLineSubtotal==='function'?calcLineSubtotal(g):(Number(g.price||0)*Number(g.num||0)*(1-Number(g.discount||0)/100)))).toFixed(2);
             var discText=(g.discount&&g.discount>0)?' (-'+g.discount+'%)':'';
-            /* 長項目獨佔整行：第一行只放品名（word-break 自動換行），
-               第二行放 數量×售價[折扣] 與 小計，避免擠壓右側欄位 */
             html+='<div class="r-item r-item-line"><span class="r-item-name">'+(g.name||'(未知商品)')+'</span></div>'
-                + '<div class="r-item r-grow r-small r-item-meta"><span>'+g.num+' x $'+g.price.toFixed(2)+discText+'</span><span class="r-item-sub">$'+sub+'</span></div>';
+                + '<div class="r-item r-grow r-small r-item-meta"><span>'+g.num+' x $'+Number(g.price||0).toFixed(2)+discText+'</span><span class="r-item-sub">$'+sub+'</span></div>';
         });
-        document.getElementById('rlist').innerHTML=html;
-        document.getElementById('rtotal').innerText='HK$ '+(totalNeedPay||0);
-        document.getElementById('rpaid').innerText='HK$ '+(payGroup.reduce(function(s,i){return s+i.money;},0)).toFixed(2);
+        setHtml('rlist',html);
+        setText('rtotal','HK$ '+(totalNeedPay||0));
+        setText('rpaid','HK$ '+(payGroup.reduce(function(s,i){return s+(Number(i.money)||0);},0)).toFixed(2));
 
         var payText = (payGroup && payGroup.length > 0)
             ? payGroup.map(function(p){
-                var c=p.change_amount>0?' (實收 $'+(p.money+p.change_amount).toFixed(2)+' / 找贖 $'+p.change_amount.toFixed(2)+')':'';
-                var t = p.type && String(p.type).trim() ? String(p.type).trim() : 'Cash'; /* 兜底，絕不顯示「未知」 */
+                var ca=Number(p.change_amount||0);
+                var c=ca>0?' (實收 $'+(Number(p.money||0)+ca).toFixed(2)+' / 找贖 $'+ca.toFixed(2)+')':'';
+                var t = p.type && String(p.type).trim() ? String(p.type).trim() : 'Cash';
                 return t+' HK$'+Number(p.money||0).toFixed(2)+c;
               }).join(' / ')
-            : ('Cash HK$' + (totalNeedPay||0).toFixed(2)); /* payGroup 完全空時兜底 */
-        document.getElementById('rpayway').innerText=payText;
-        document.getElementById('rbarcodeText').innerText=rtn;
-        document.getElementById('rbarcode').innerHTML='<rect width="100%" height="40" fill="white"/><text x="50%" y="50%" text-anchor="middle" font-size="28" font-family="Courier New">'+rtn+'</text>';
-        document.getElementById('rbarcode').setAttribute('width','100%');
-        document.getElementById('rbarcode').setAttribute('height','40');
+            : ('Cash HK$' + (totalNeedPay||0).toFixed(2));
+        setText('rpayway',payText);
+        setText('rbarcodeText',rtn);
+        setBarcode(rtn);
     } catch(fillErr) {
         console.error('fillReceipt 錯誤：',fillErr);
+    }
+    if(_missing.length){
+        console.warn('fillReceipt：以下收據元素 ID 缺失（唔影響結帳，只影響顯示）：',_missing.join(', '));
     }
 }
 window.fillReceipt = fillReceipt;
