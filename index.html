@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>零售系統 ‧ 正式雲端版 v6.4 (V28 修復版)</title>
+<title>零售系統 ‧ 正式雲端版 v6.7 (V37 今日營業額 Cash 修復版)</title>
 
 <!-- Supabase JS -->
 <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
@@ -370,6 +370,22 @@ tbody tr td input.subtotal-input{width:72px;text-align:right;font-weight:bold;}
 .mem-history-list .mh-item-name{color:#333;}
 .mem-history-list .mh-void{color:#dc3545;}
 .mem-history-list .mh-empty{padding:20px;text-align:center;color:#999;}
+
+/* 會員管理彈窗專用下拉樣式 */
+.search-container { position: relative; flex: 1; display: flex; }
+.suggest-box {
+    position: absolute;
+    top: 100%; left: 0; right: 0;
+    background: #fff;
+    border: 2px solid #3498db;
+    border-radius: 0 0 8px 8px;
+    box-shadow: 0 8px 16px rgba(0,0,0,0.15);
+    max-height: 240px;
+    overflow-y: auto;
+    z-index: 99999;
+    display: none;
+    margin-top: 2px;
+}
 </style>
 </head>
 <body>
@@ -466,6 +482,7 @@ tbody tr td input.subtotal-input{width:72px;text-align:right;font-weight:bold;}
                 <button type="button" class="btn btn-blue btn-sm" onclick="document.getElementById('memUpload').click()">📥 匯入會員 Excel</button>
                 <button type="button" class="btn btn-orange btn-sm" onclick="exportTodayOrders()">📤 匯出今日訂單</button>
                 <button type="button" class="btn btn-orange btn-sm" onclick="openExpenseModal()">💸 新增支出</button>
+                <button type="button" class="btn btn-purple btn-sm" onclick="openMembersModal()">👥 會員管理</button>
             </div>
         </div>
 
@@ -476,7 +493,37 @@ tbody tr td input.subtotal-input{width:72px;text-align:right;font-weight:bold;}
                 <button type="button" class="btn btn-green btn-sm" onclick="openQuickSearch()">🔥 常用商品搜尋</button>
                 <button type="button" class="btn btn-orange btn-sm" onclick="openFloatModal()">💰 設定開台現金</button>
                 <button type="button" class="btn btn-blue btn-sm" onclick="sendDailyReport()">📧 發送今日報告</button>
+                <button type="button" class="btn btn-red btn-sm" id="btnSettle" onclick="openSettleModal()">🧮 結算</button>
             </div>
+        </div>
+    </div>
+</div>
+
+<!-- ★★★ 結算彈窗 ★★★ -->
+<div class="modal" id="settleModal">
+    <div class="modal-inner" style="width:720px;">
+        <h3>🧮 班次結算</h3>
+        <div class="float-info" id="settlePeriod" style="margin-bottom:10px;"></div>
+        <table style="font-size:13px;margin-bottom:12px;">
+            <thead><tr><th>付款方式</th><th style="text-align:right;">累積金額 (HK$)</th></tr></thead>
+            <tbody id="settlePayBody"></tbody>
+            <tfoot><tr style="font-weight:bold;background:#e8f1ff;"><td>合計</td><td id="settleGrand" style="text-align:right;">0.00</td></tr></tfoot>
+        </table>
+        <div class="void-info-box" style="margin-bottom:12px;">
+            <b>現金結餘明細</b>
+            <div style="margin-top:6px;line-height:2;">
+                開台現金：<span id="settleFloat" style="font-weight:bold;">0.00</span><br>
+                − 支出（費用）：<span id="settleExpense" style="font-weight:bold;color:#dc3545;">0.00</span><br>
+                − Void 退現金：<span id="settleVoidCash" style="font-weight:bold;color:#dc3545;">0.00</span><br>
+                ＋ 現金收款：<span id="settleCashIn" style="font-weight:bold;color:#28a745;">0.00</span><br>
+                <hr style="border:none;border-top:1px dashed #999;margin:4px 0;">
+                現金結餘（應有）：<span id="settleCashBal" style="font-weight:bold;font-size:16px;color:#0052cc;">0.00</span>
+            </div>
+        </div>
+        <div class="void-btn-row">
+            <button class="btn btn-red" onclick="confirmSettle()">✅ 確認結算（清零重新累積）</button>
+            <button class="btn btn-blue" onclick="refreshSettle()">🔄 重新整理</button>
+            <button class="btn" onclick="closeSettleModal()">關閉</button>
         </div>
     </div>
 </div>
@@ -527,7 +574,42 @@ tbody tr td input.subtotal-input{width:72px;text-align:right;font-weight:bold;}
         </div>
     </div>
 </div>
-
+<!-- ★★★ 👥 全功能 14,000+ 會員管理 Modal ★★★ -->
+<div class="modal" id="membersModal">
+    <div class="modal-inner" style="width: 900px; max-width: 95%;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+            <h3 style="margin:0;color:#0052cc;">👥 會員管理（14,000+ 全庫模糊搜尋）</h3>
+            <span style="cursor:pointer;font-size:20px;font-weight:bold;" onclick="closeModal('membersModal')">&times;</span>
+        </div>
+        <div style="display:flex;gap:10px;align-items:center;margin-bottom:12px;background:#f0f6ff;padding:10px;border-radius:6px;flex-wrap:wrap;">
+            <div class="search-container">
+                <input type="text" id="memSearchInput" placeholder="輸入最少 3 個字元（姓名或電話，不分大小寫）..." autocomplete="off" style="width:100%;padding:8px;border:1px solid #bbb;border-radius:4px;" oninput="handleMemSearchInput(this.value)">
+                <div class="suggest-box" id="memSuggestBox"></div>
+            </div>
+            <button type="button" class="btn btn-blue" onclick="loadMembersData()">🔍 搜尋</button>
+            <button type="button" class="btn btn-green" onclick="addMemberRow()">➕ 新增一筆</button>
+        </div>
+        <div class="record-table" style="max-height: 400px; overflow-y: auto;">
+            <table id="membersGrid" style="table-layout: fixed; width:100%;">
+                <thead>
+                    <tr>
+                        <th style="width: 120px;">ID</th>
+                        <th style="width: 260px;">姓名 Name</th>
+                        <th style="width: 260px;">電話 Phone</th>
+                        <th style="width: 120px;">操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr><td colspan="4" style="color:#999;padding:20px;text-align:center;">請輸入 3 個或以上字元進行全庫搜尋</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <div style="margin-top:12px;display:flex;justify-content:space-between;align-items:center;">
+            <span style="font-size:13px;color:#666;">總顯示筆數：<b id="memCount" style="color:#0052cc;">0</b></span>
+            <button type="button" class="btn btn-red" onclick="closeModal('membersModal')">✖ 關閉</button>
+        </div>
+    </div>
+</div>
 <!-- ★★★ 會員消費明細彈窗（移植自 V18）★★★ -->
 <div class="modal mem-history-modal" id="memHistoryModal">
     <div class="modal-inner">
@@ -930,8 +1012,221 @@ printer.partialCut();
 </div>
 
 <script>
+/* ============================================================
+   ★★★ V35 結算模組（三規則：流入/退款/支出，嚴格 cwb，0 次 supabase.rpc）★★★
+   ============================================================ */
+const SETTLE_KEYS = {
+    start: 'pos_settle_start',       // 本次結算週期起點（ISO）
+    float: 'pos_cash_float',         // 開台現金
+    history: 'pos_settle_history'    // 結算歷史
+};
+const PAY_METHODS = ['VISA','MASTER','Cash','支付寶','微信支付','八達通','AE','Stripe','PayPal','PayMe','Union'];
 
-/* ========== ★★★ 登入邏輯（新增，其餘不動）★★★ ========== */
+// 取得 supabase client
+let __sb = null;
+function _sb(){ if(__sb) return __sb; __sb = window.sb || window.supabase; return __sb; }
+function _sbClient(){ return _sb(); }
+
+// 金額四捨五入至兩位
+function r2(n){ return Math.round((parseFloat(n)||0)*100)/100; }
+
+// 讀開台現金（settings 表優先，否則 localStorage）
+async function getCashFloat(){
+    try{
+        var s = await _sb().from('settings').select('value').eq('key','cash_float').limit(1);
+        if(s && s.data && s.data.length){ return r2(s.data[0].value); }
+    }catch(e){}
+    var lf = parseFloat(localStorage.getItem(SETTLE_KEYS.float)||'0')||0;
+    return r2(lf);
+}
+
+// 讀/存結算起始時間
+function getSettleStart(){
+    var t = localStorage.getItem(SETTLE_KEYS.start);
+    if(t) return t;
+    var now = new Date().toISOString();
+    localStorage.setItem(SETTLE_KEYS.start, now);
+    return now;
+}
+function setSettleStart(iso){ localStorage.setItem(SETTLE_KEYS.start, iso); }
+
+// 開啟結算彈窗
+async function openSettleModal(){
+    document.getElementById('settleModal').classList.add('open');
+    await refreshSettle();
+}
+
+function closeSettleModal(){
+    document.getElementById('settleModal').classList.remove('open');
+}
+
+/* ============================================================
+   ★★★ V36 結算計算核心 ★★★
+   嚴格依照用戶指定規則（以「結算次數」為單位，不按每日）：
+
+   【起點】上次結算時間 last_settle_time
+           - 首次（今日尚未結算過）→ 今日凌晨 00:00:00（香港時間）
+           - 已結算過 → 上次「確認結算」的瞬間
+           - period = (last_settle_time, now]
+           - 「每次按結算清零」：confirmSettle() 把 last_settle_time 設為「現在」，
+             下一輪即從此刻重新累積
+
+   【流入】 pay_records
+           - created_at > since
+           - shop_mk = 'cwb'（寫入時已標記）
+           - 按 pay_type 分組，累加 amount
+           （void 單的原始付款「照計入」，不作廢 —— 因退款另計流出①）
+
+   【流出① 退款】 void_records
+           - created_at > since（退款發生時間）
+           - shop_mk = 'cwb'
+           - 按 refund_method 分組，累加 amount（退款總額寫入時已存於 amount 欄）
+
+   【流出② 支出】 expenses
+           - created_at > since
+           - shop_mk = 'cwb'
+           - 全加
+
+   【現金結餘】 = 開台 + inflow['Cash'] − refundOut['Cash'] − expenseOut
+   ============================================================ */
+
+// 今日凌晨 00:00:00（香港時間）的 ISO 字串
+function todayMidnightISO(){
+      var now = new Date();
+  var m = String(now.getMonth()+1).padStart(2,'0');
+  var d = String(now.getDate()).padStart(2,'0');
+  // 1046行：強制鎖定本地00:00:00，不帶毫秒
+  var localMid = new Date(now.getFullYear()+'-'+m+'-'+d+'T00:00:00'); 
+  // 1048行：轉UTC後，直接.split('.')砍掉所有毫秒，補上乾淨:00
+  return new Date(localMid.getTime() - localMid.getTimezoneOffset()*60000).toISOString().split('.')[0].substring(0,16)+':00';
+}
+
+// 讀上次結算時間：settings 表優先，其次 localStorage，首次則回傳「今日凌晨」
+async function loadSettleStartISO(){
+    try{
+        var s = await _sb().from('settings').select('value').eq('key','last_settle_time').limit(1);
+        if(s && s.data && s.data.length && s.data[0].value){ return s.data[0].value; }
+    }catch(e){}
+    var local = localStorage.getItem(SETTLE_KEYS.start);
+    if(local) return local;
+    return todayMidnightISO(); // 首次 → 今日凌晨 00:00
+}
+async function refreshSettle(){
+  var s = await _sb().auth.getSession();
+  if(!s.session){ console.warn('⚠️ 結算：無登入Token，RLS擋'); return; }
+  var sinceISO = await loadSettleStartISO();   // 例：'2026-08-29T00:00'
+  var sinceDisplay = new Date(sinceISO).toLocaleString('zh-HK');
+  var sinceClean = sinceISO.replace(/\.\d+Z$/, '').substring(0, 16) + ':00';
+  document.getElementById('settlePeriod').innerText = '結算週期：' + sinceDisplay + ' 起 (以結算次數為單位)';
+
+    // ---------- ① 撈 pay_records（本週期，cwb）----------
+    //    shop_mk 欄位（V36 起寫入時必標 'cwb'）；舊資料若無 shop_mk 則用 orders 關聯兜底
+    var payRes = await _sb().from('pay_records')
+        .select('*')
+        .gte('create_at', sinceClean)
+        .eq('shop_mk', 'cwb');
+    var payRows = (payRes && payRes.data) || [];
+
+    // ---------- ② 撈 void_records（本週期，cwb，amount=退款總額）----------
+    var voidRes = await _sb().from('void_records')
+        .select('*')
+        .gte('create_at', sinceClean)
+        .eq('shop_mk', 'cwb');
+    var voidRows = (voidRes && voidRes.data) || [];
+
+    // ---------- ③ 撈 expenses（本週期，cwb）----------
+    var expRes = await _sb().from('expenses')
+        .select('*')
+        .gte('create_at', sinceClean)
+        .eq('shop_mk', 'cwb');
+    var expRows = (expRes && expRes.data) || [];
+
+    // ===== 流入：pay_records，限定 cwb，按 pay_type 累加（void 單原始付款照計入）=====
+    var inflow = {};
+    PAY_METHODS.forEach(function(m){ inflow[m] = 0; });
+    payRows.forEach(function(p){
+        if((p.shop_mk||'') !== 'cwb') return;          // ★ 只計 cwb（直接看 pay_records.shop_mk）
+        var pt = p.pay_type || 'Cash';
+        if(inflow[pt] === undefined) inflow[pt] = 0;
+        inflow[pt] += r2(p.amount);
+    });
+
+    // ===== 流出-退款：void_records，按 refund_method 累扣，限定 cwb =====
+    var refundOut = {};
+    PAY_METHODS.forEach(function(m){ refundOut[m] = 0; });
+    voidRows.forEach(function(v){
+        if((v.shop_mk||'') !== 'cwb') return;          // ★ 只計 cwb（void_records 已有 shop_mk+amount）
+        var rm = v.refund_method || 'Cash';
+        if(refundOut[rm] === undefined) refundOut[rm] = 0;
+        refundOut[rm] += r2(v.amount);                 // amount 即退款總額（void 時寫入）
+    });
+
+    // ===== 流出-支出：expenses，限定 cwb =====
+    var totalExpense = 0;
+    expRows.forEach(function(e){
+        if((e.shop_mk||'') !== 'cwb') return;          // ★ 只計 cwb
+        totalExpense += r2(e.amount);
+    });
+
+    // ===== 付款方式累積（流入各項；退款已獨立顯示，不在此扣回）=====
+    var totals = {};
+    PAY_METHODS.forEach(function(m){ totals[m] = inflow[m]; });
+
+    // ===== 現金結餘 =====
+    var cashFloat   = await getCashFloat();
+    var cashIn      = inflow['Cash'] || 0;           // 流入中的 Cash
+    var cashRefund  = refundOut['Cash'] || 0;        // 退現金（流出）
+    var cashBalance = r2(cashFloat) + r2(cashIn) - r2(cashRefund) - r2(totalExpense);
+
+    // ===== 渲染：付款方式清單 =====
+    var body = document.getElementById('settlePayBody');
+    body.innerHTML = '';
+    var grand = 0;
+    PAY_METHODS.forEach(function(m){
+        var amt = r2(totals[m]);
+        grand += amt;
+        body.innerHTML += '<tr><td>'+m+'</td><td style="text-align:right;">'+amt.toFixed(2)+'</td></tr>';
+    });
+    document.getElementById('settleGrand').innerText = r2(grand).toFixed(2);
+
+    // ===== 渲染：現金明細 =====
+    document.getElementById('settleFloat').innerText     = cashFloat.toFixed(2);
+    document.getElementById('settleCashIn').innerText    = cashIn.toFixed(2);
+    document.getElementById('settleVoidCash').innerText  = cashRefund.toFixed(2);
+    document.getElementById('settleExpense').innerText   = totalExpense.toFixed(2);
+    document.getElementById('settleCashBal').innerText  = cashBalance.toFixed(2);
+
+    console.log('[V36 結算] since=', sinceISO, '(今日凌晨=', todayMidnightISO(), ')');
+    console.log('[V36 結算] 流入(inflow)=', inflow);
+    console.log('[V36 結算] 退款流出(refundOut)=', refundOut);
+    console.log('[V36 結算] 支出=', totalExpense, '| 開台=', cashFloat);
+    console.log('[V36 結算] 現金結餘=', cashBalance);
+}
+
+// 確認結算：存歷史 + 重置起點為「現在」
+async function confirmSettle(){
+    var snap = {
+        time: new Date().toISOString(),
+        since: await loadSettleStartISO(),
+        payBody: document.getElementById('settlePayBody').innerHTML,
+        grand: document.getElementById('settleGrand').innerText,
+        cashBalance: document.getElementById('settleCashBal').innerText
+    };
+    try{
+        var hist = JSON.parse(localStorage.getItem(SETTLE_KEYS.history)||'[]');
+        hist.unshift(snap);
+        localStorage.setItem(SETTLE_KEYS.history, JSON.stringify(hist.slice(0,30)));
+        // 跨裝置同步：寫入 settings 表
+        await _sb().from('settings').upsert({key:'last_settle_time', value: snap.time}, {onConflict:'key'});
+    }catch(e){ console.warn('結算存檔失敗', e); }
+    // 重置結算週期起點 → 後續付款重新累積
+    try { localStorage.setItem(SETTLE_KEYS.start, snap.time); } catch(e){}
+    toast('✅ 已結算，數字已清零，開始新一輪累積');
+    closeSettleModal();
+}
+
+
+/* ========== ★★★ 登入邏輯（原有，不動）★★★ ========== */
 /* 取得 supabase client：優先用原程式碼建立的 window.sb，否則用全域 supabase */
 function _sbClient(){
   return window.sb || window.supabase;
@@ -968,7 +1263,8 @@ window.addEventListener('DOMContentLoaded', async function(){
 if (typeof window.sb === 'undefined') {
     window.sb = window.supabase.createClient(
         "https://hictckzamrshdbajaafg.supabase.co",
-        "sb_publishable_KP1vgmWGdI2PF9Pb_yjQOg_LWjyC6vv"
+        "sb_publishable_KP1vgmWGdI2PF9Pb_yjQOg_LWjyC6vv",
+        {auth: { persistSession: true, storage: window.localStorage}}
     );
 }
 var supabase = window.sb;
@@ -1031,6 +1327,10 @@ var cashChangeAmount  = 0;
 /* 開台現金 */
 var cashFloatAmount = 2000; // 預設值
 
+/* 會員管理暫存 */
+var memRows = [];
+var memSearchDebounce = null;
+
 /* =====================================================================
  *  工具
  * ===================================================================== */
@@ -1065,6 +1365,254 @@ document.addEventListener('keydown',function(e){
     }
 });
 
+/* =====================================================================
+ * 會員邏輯與全功能 14,000+ 會員管理視窗
+ * ===================================================================== */
+window.searchMember=async function(){
+    var phone=document.getElementById('phoneInput').value.trim(); if(!phone){showToast('請輸入電話');return;}
+    var res=await supabase.from('members').select('name,phone').eq('phone',phone).single();
+    if(res.error||!res.data){showToast('沒有此會員');closeMemDropdown();return;}
+    nowCustomer={name:res.data.name,phone:phone,isWalk:false};
+    document.getElementById('customerText').textContent='當前客戶: '+res.data.name+'｜📞'+phone;
+    showToast('已選會員：'+res.data.name);
+    closeMemDropdown();
+    loadMemberHistory(phone,res.data.name);
+};
+
+window.onPhoneInputChange=async function(rawVal){
+    var val=(rawVal||'').replace(/\s+/g,'');
+    var dd=document.getElementById('memDropdown');
+    if(val.length<3){ dd.classList.remove('open'); dd.innerHTML=''; return; }
+    var q=supabase.from('members').select('id,name,phone').or('phone.ilike.%'+val+'%,name.ilike.%'+val+'%').limit(8);
+    var res=await q;
+    var list=res.data||[];
+    if(list.length===0){ dd.innerHTML='<div class="md-empty">無符合會員</div>'; dd.classList.add('open'); return; }
+    var html='';
+    list.forEach(function(m){
+        var name=m.name.replace(/"/g,'&quot;'),ph=(m.phone||'').replace(/"/g,'&quot;');
+        html+='<div class="md-item" data-name="'+name+'" data-phone="'+ph+'" onclick="pickMemberFromDropdown(this)"><span class="md-name">'+m.name+'</span><span class="md-phone">'+(m.phone||'')+'</span></div>';
+    });
+    dd.innerHTML=html; dd.classList.add('open');
+};
+
+window.pickMemberFromDropdown=function(el){
+    var name=el.dataset.name,phone=el.dataset.phone;
+    nowCustomer={name:name,phone:phone,isWalk:false};
+    document.getElementById('customerText').textContent='當前客戶: '+name+'｜📞'+phone;
+    document.getElementById('phoneInput').value=phone;
+    closeMemDropdown();
+    showToast('已選會員：'+name);
+};
+
+function closeMemDropdown(){ var dd=document.getElementById('memDropdown'); if(dd){dd.classList.remove('open');dd.innerHTML='';} }
+
+document.addEventListener('click',function(e){
+    var wrap=document.querySelector('.mem-search-wrap');
+    if(wrap && !wrap.contains(e.target)) closeMemDropdown();
+    if (!e.target.closest('.search-container')) hideMemSuggestBox();
+});
+
+window.loadMemberHistory=async function(phone,name){
+    var info=document.getElementById('memHistoryInfo');
+    var list=document.getElementById('memHistoryList');
+    info.innerHTML='<div><b>會員：</b> '+(name||'')+'</div><div><b>電話：</b> '+(phone||'')+'</div><div><b>查詢中...</b></div>';
+    list.innerHTML='<p style="color:#999;padding:20px;text-align:center;">載入中...</p>';
+    openModal('memHistoryModal');
+
+    var ordRes=await supabase.from('orders').select('id,total_amount,staff_name,create_at,status').eq('customer_phone',phone).eq('status','active').order('create_at',{ascending:false}).limit(5);
+    var orders=ordRes.data||[];
+    if(orders.length===0){
+        info.innerHTML='<div><b>會員：</b> '+(name||'')+'</div><div><b>電話：</b> '+(phone||'')+'</div><div><b>尚無消費紀錄</b></div>';
+        list.innerHTML='<div class="mh-empty">此會員暫無消費紀錄</div>';
+        return;
+    }
+    var orderIds=orders.map(function(o){return o.id;});
+    var itemRes=await supabase.from('order_item').select('order_id,product_name,name,single_price,price,qty,quantity,discount').in('order_id',orderIds);
+    var items=itemRes.data||[];
+    var byOrder={}; items.forEach(function(it){ (byOrder[it.order_id]=byOrder[it.order_id]||[]).push(it); });
+
+    info.innerHTML='<div><b>會員：</b> '+(name||'')+'</div><div><b>電話：</b> '+(phone||'')+'</div><div><b>近 5 次消費明細</b></div>';
+
+    var html='<table><thead><tr><th>日期</th><th>產品描述</th><th style="text-align:right;">售價</th><th style="text-align:right;">數量</th><th style="text-align:right;">小計</th></tr></thead><tbody>';
+    orders.forEach(function(o){
+        var t=new Date(o.create_at).toLocaleString('zh-HK');
+        html+='<tr class="mh-order-row"><td colspan="5">🧾 #'+o.id+' ｜ '+t+' ｜ <b>HK$ '+Math.round(Number(o.total_amount))+'</b></td></tr>';
+        var oItems=byOrder[o.id]||[];
+        oItems.forEach(function(it){
+            var pr=Number(it.single_price||it.price)||0, qy=Number(it.qty||it.quantity)||0, dc=Number(it.discount)||0, sub=roundMoney(pr*qy*(1-dc/100));
+            var pname=(it.product_name||it.name)||'未知商品';
+            html+='<tr><td></td><td class="mh-item-name" style="text-align:left;">'+pname+'</td><td style="text-align:right;">$'+pr.toFixed(2)+'</td><td style="text-align:right;">'+qy+'</td><td style="text-align:right;">$'+sub.toFixed(2)+'</td></tr>';
+        });
+    });
+    html+='</tbody></table>';
+    list.innerHTML=html;
+};
+
+window.resetCustomer=function(){ nowCustomer={name:'',phone:'',isWalk:true}; document.getElementById('customerText').textContent='當前客戶: 顧客 WALK IN'; document.getElementById('phoneInput').value=''; showToast('已恢復 WALK IN'); };
+window.openAddMember=function(){ document.getElementById('newMemName').value=''; document.getElementById('newMemPhone').value=''; openModal('memberModal'); setTimeout(function(){document.getElementById('newMemName').focus();},100); };
+window.submitNewMember=async function(){
+    var name=document.getElementById('newMemName').value.trim(), phone=document.getElementById('newMemPhone').value.trim();
+    if(!name||!phone){showToast('請填寫姓名與電話');return;}
+    var res=await supabase.from('members').insert({name:name,phone:phone});
+    if(res.error){alert('新增失敗：'+res.error.message);return;} closeModal('memberModal'); showToast('會員新增成功！');
+};
+
+/* ★★★ 👥 全功能 14,000+ 會員管理視窗邏輯 ★★★ */
+window.openMembersModal = function(){
+    openModal('membersModal');
+    document.getElementById('memSearchInput').value = '';
+    hideMemSuggestBox();
+    loadMembersData();
+};
+
+function handleMemSearchInput(val) {
+    const keyword = val.trim();
+    if (keyword.length < 3) {
+        hideMemSuggestBox();
+        return;
+    }
+    clearTimeout(memSearchDebounce);
+    memSearchDebounce = setTimeout(async () => {
+        const { data, error } = await supabase.from('members')
+            .select('id, name, phone')
+            .or(`name.ilike.%${keyword}%,phone.ilike.%${keyword}%`)
+            .limit(10);
+        if (error || !data || data.length === 0) {
+            hideMemSuggestBox();
+            return;
+        }
+        showMemSuggestBox(data);
+    }, 250);
+}
+
+function showMemSuggestBox(items) {
+    const box = document.getElementById('memSuggestBox');
+    box.innerHTML = items.map(item => 
+        `<div class="suggest-item" onclick="selectMemSuggest('${item.id}', '${escapeHtml(item.name)}', '${escapeHtml(item.phone)}')">
+            <span style="font-weight:bold;">${escapeHtml(item.name || '(無姓名)')}</span>
+            <span style="color:#0052cc;font-family:monospace;">📞 ${escapeHtml(item.phone || '-')}</span>
+        </div>`
+    ).join('');
+    box.classList.add('show');
+}
+
+function hideMemSuggestBox() {
+    const box = document.getElementById('memSuggestBox');
+    if (box) box.classList.remove('show');
+}
+
+function selectMemSuggest(id, name, phone) {
+    document.getElementById('memSearchInput').value = name || phone;
+    hideMemSuggestBox();
+    loadMembersData();
+}
+
+function escapeHtml(str) {
+    return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+async function loadMembersData() {
+    var keyword = document.getElementById('memSearchInput').value.trim();
+    var tbody = document.querySelector('#membersGrid tbody');
+    tbody.innerHTML = '<tr><td colspan="4" style="color:#999;padding:20px;text-align:center;">載入中...</td></tr>';
+    
+    var query = supabase.from('members').select('id, name, phone');
+    if (keyword) {
+        if (keyword.length < 3) {
+            alert('⚠️ 搜尋會員請輸入至少 3 個字元');
+            tbody.innerHTML = '<tr><td colspan="4" style="color:#999;padding:20px;text-align:center;">請輸入最少 3 個字元搜尋</td></tr>';
+            return;
+        }
+        query = query.or(`name.ilike.%${keyword}%,phone.ilike.%${keyword}%`).limit(100);
+    } else {
+        query = query.order('id', { ascending: false }).limit(50);
+    }
+
+    var { data, error } = await query;
+    if (error) {
+        tbody.innerHTML = '<tr><td colspan="4" style="color:red;padding:20px;text-align:center;">載入失敗：'+error.message+'</td></tr>';
+        return;
+    }
+
+    memRows = data || [];
+    document.getElementById('memCount').textContent = memRows.length;
+
+    if (memRows.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" style="color:#999;padding:20px;text-align:center;">找不到符合的會員</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = memRows.map(r => `
+        <tr data-id="${r.id}">
+            <td style="text-align:center;">${r.id}</td>
+            <td><input class="cell-input" style="text-align:left;" data-id="${r.id}" data-col="name" value="${escapeHtml(r.name || '')}"></td>
+            <td><input class="cell-input" style="text-align:left;" data-id="${r.id}" data-col="phone" value="${escapeHtml(r.phone || '')}"></td>
+            <td style="text-align:center;">
+                <button type="button" class="btn btn-green btn-sm" onclick="saveMemberRow('${r.id}')">💾</button>
+                <button type="button" class="btn btn-red btn-sm" onclick="deleteMemberRow('${r.id}')">🗑</button>
+            </td>
+        </tr>
+    `).join('');
+}
+
+function addMemberRow() {
+    var tbody = document.querySelector('#membersGrid tbody');
+    var tempId = 'NEW_' + Date.now();
+    var html = `
+        <tr data-id="${tempId}">
+            <td style="text-align:center;color:#999;">新筆</td>
+            <td><input class="cell-input" style="text-align:left;" data-id="${tempId}" data-col="name" value="" placeholder="會員姓名"></td>
+            <td><input class="cell-input" style="text-align:left;" data-id="${tempId}" data-col="phone" value="" placeholder="電話號碼"></td>
+            <td style="text-align:center;">
+                <button type="button" class="btn btn-green btn-sm" onclick="saveMemberRow('${tempId}')">💾 新增</button>
+            </td>
+        </tr>
+    `;
+    if (memRows.length === 0) tbody.innerHTML = '';
+    tbody.insertAdjacentHTML('afterbegin', html);
+}
+
+async function saveMemberRow(id) {
+    var nameInp = document.querySelector(`#membersGrid input[data-id="${id}"][data-col="name"]`);
+    var phoneInp = document.querySelector(`#membersGrid input[data-id="${id}"][data-col="phone"]`);
+    
+    var name = nameInp ? nameInp.value.trim() : '';
+    var phone = phoneInp ? phoneInp.value.trim() : '';
+
+    if (!name || !phone) {
+        alert('⚠️ 姓名與電話不可為空');
+        return;
+    }
+
+    var payload = { name, phone,};
+    showToast('儲存中...');
+
+    var res;
+    if (String(id).startsWith('NEW_')) {
+        res = await supabase.from('members').insert([payload]);
+    } else {
+        res = await supabase.from('members').update(payload).eq('id', id);
+    }
+
+    if (res.error) {
+        alert('儲存失敗：' + res.error.message);
+        return;
+    }
+
+    showToast('✅ 會員資料已儲存');
+    loadMembersData();
+}
+
+async function deleteMemberRow(id) {
+    if (!confirm('確定要刪除這筆會員資料？')) return;
+    var res = await supabase.from('members').delete().eq('id', id);
+    if (res.error) {
+        alert('刪除失敗：' + res.error.message);
+        return;
+    }
+    showToast('🗑 已刪除');
+    loadMembersData();
+}
 /* =====================================================================
  *  營業員管理
  * ===================================================================== */
@@ -1501,7 +2049,8 @@ window.confirmCheckout=async function(e){
             total_amount:totalNeedPay,staff_name:staffName,
             customer_name:nowCustomer.isWalk?'WALK IN':nowCustomer.name,
             customer_phone:nowCustomer.isWalk?'':nowCustomer.phone,
-            status:'active'
+            status:'active',
+            shop_mk:'cwb'
         }).select('id,create_at').single();
 
         if(res.error||!res.data){
@@ -1524,7 +2073,8 @@ window.confirmCheckout=async function(e){
                 single_price:g.price,
                 discount:g.discount,
                 product_name:g.name,
-                barcode:g.barcode
+                barcode:g.barcode,
+                shop_mk:'cwb'
             });
             if(itemInsertRes.error){console.warn('寫入 order_item 警告：',itemInsertRes.error.message);}
             /* ★ V28: 扣庫存（decrement_stock 參數必須係 pid / qty，對應 DB 函數） */
@@ -1553,7 +2103,8 @@ window.confirmCheckout=async function(e){
                 order_id:orderId,
                 pay_type:payGroup[pi].type,
                 amount:payGroup[pi].money,
-                change_amount:payGroup[pi].change_amount||0
+                change_amount:payGroup[pi].change_amount||0,
+                shop_mk:'cwb'
             });
             if(payInsertRes.error){
                 /* ★ V28: 付款紀錄寫入失敗升級為 alert + Toast，唔再靜默 */
@@ -1770,7 +2321,7 @@ window.reprintReceipt = async function(prefilledOrderId) {
 
         /* ② 緩存冇 → 試 DB（可能被 RLS main-policy 擋咗 → 403 → data=null） */
         if (pays.length === 0) {
-            var payRes = await supabase.from('pay_records').select('*').eq('order_id',orderId);
+            var payRes = await supabase.from('pay_records').select('*').eq('order_id',orderId).eq('shop_mk', 'cwb');
             if (payRes.error) {
                 console.warn('[reprint] pay_records 查詢失敗（可能 RLS 攔截）:', payRes.error.message);
             }
@@ -1925,7 +2476,14 @@ window.confirmVoid = async function(e) {
 
     try {
         await supabase.from('orders').update({status:'void'}).eq('id',orderId);
-        await supabase.from('void_records').insert({order_id:orderId, refund_method:refundMethod, remark:remark, operator:staffName});
+        await supabase.from('void_records').insert({
+            order_id:orderId,
+            refund_method:refundMethod,
+            remark:remark,
+            operator:staffName,
+            amount:Number(order.total_amount)||0,
+            shop_mk:'cwb'
+        });
 
         for(var i=0;i<items.length;i++){
             var it=items[i]; var pid=it.product_id||it.pid; var qty=Number(it.qty)||Number(it.quantity)||0;
@@ -2021,7 +2579,7 @@ window.submitExpense = async function(){
     if(!amount || amount<=0){alert('請輸入有效的金額');return;}
     if(!reason){alert('請輸入支出原因');return;}
 
-    var res = await supabase.from('expenses').insert({amount:amount, reason:reason});
+    var res = await supabase.from('expenses').insert({amount:amount, reason:reason, shop_mk:'cwb'});
     if(res.error){alert('新增支出失敗：'+res.error.message);return;}
 
     closeModal('expenseModal');
@@ -2378,17 +2936,14 @@ window.loadTodayDetail=async function(){
     var itemsRes=await supabase.from('order_item').select('*').in('order_id',orderIds);
     var items=itemsRes.data||[]; currentDetailItems=items;
 
-    var netTotal=0;
-    var byOrder={};
-    items.forEach(function(it){var oid=it.order_id;(byOrder[oid]=byOrder[oid]||[]).push(it);});
-    activeOrders.forEach(function(ord){
-        if(!byOrder[ord.id])return;
-        byOrder[ord.id].forEach(function(it){
-            netTotal+=roundMoney((Number(it.single_price||it.price)||0)*(Number(it.qty||it.quantity)||0)*(1-(Number(it.discount)||0)/100));
-        });
-    });
+    /* ★ V37 修正：淨營業額以「有效訂單的 total_amount」為準
+       舊版從 order_item 逐項重算，若該表被 RLS 擋截（如 Cash 單），整張單會被跳過而漏算。
+       改為直接 sum orders.total_amount，與「日期查詢」口徑一致，Cash / 其他付款方式都會計入。 */
+    var netTotal = activeOrders.reduce(function(s,o){return s+Number(o.total_amount)||0;},0);
+    netTotal = roundMoney(netTotal);
 
-    var voidDeduct = voidOrders.reduce(function(s,o){return s+Number(o.total_amount);},0);
+    /* 「Void 扣除」= 本日所有 void 單的原始金額（顯示用；netTotal 已不含 void 單） */
+    var voidDeduct = voidOrders.reduce(function(s,o){return s+Number(o.total_amount)||0;},0);
 
     document.getElementById('detailOrdersCount').innerText=list.length+'（含 '+voidOrders.length+' 筆 Void）';
     document.getElementById('detailItemsCount').innerText=items.length;
@@ -2602,7 +3157,11 @@ window.runAdvQuery = async function(){
     advQueryItems.forEach(function(it){var oid=it.order_id;(byOrder[oid]=byOrder[oid]||[]).push(it);});
     filteredOrders.forEach(function(o){
         if(o.status==='void')return;
-        if(!byOrder[o.id])return;
+        if(!byOrder[o.id]){
+            /* ★ V37 兜底：若 order_item 讀不到（RLS 攔截/舊單無明細），用訂單總額計入，避免整張單漏算（含 Cash 單） */
+            netTotal+=roundMoney(Number(o.total_amount)||0);
+            return;
+        }
         byOrder[o.id].forEach(function(it){netTotal+=roundMoney((Number(it.single_price||it.price)||0)*(Number(it.qty||it.quantity)||0)*(1-(Number(it.discount)||0)/100));});
     });
 
