@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>零售系統 ‧ 正式雲端版 v6.7 (V37 今日營業額 Cash 修復版)</title>
+<title>零售系統 ‧ CWB 銅鑼灣店 (V45 分店對稱版)</title>
 
 <!-- Supabase JS -->
 <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
@@ -386,6 +386,9 @@ tbody tr td input.subtotal-input{width:72px;text-align:right;font-weight:bold;}
     display: none;
     margin-top: 2px;
 }
+.suggest-box.show { display: block; }
+.suggest-item { padding: 8px 12px; border-bottom: 1px solid #eee; cursor: pointer; display: flex; justify-content: space-between; }
+.suggest-item:hover { background: #e8f1ff; color: #0052cc; }
 </style>
 </head>
 <body>
@@ -436,7 +439,7 @@ tbody tr td input.subtotal-input{width:72px;text-align:right;font-weight:bold;}
             <div>折扣: <span id="discountAll">0.00</span></div>
             <div>最終: <span id="finalAll">0.00</span></div>
         </div>
-        <div class="edit-hint">💡 提示：點選商品行後，產品描述、售價、數量、折扣均可直接修改，小計會自動重算；整單最終金額四捨五入為整數</div>
+        <div class="edit-hint">💡 提示：點選商品小計可直接手動修改，系統會鎖定小計並自動反算折扣，最終應付金額（四捨五入）將完全以小計加總為準！</div>
     </div>
 
     <!-- 右側：客戶 / 查詢 / 匯入 -->
@@ -492,38 +495,8 @@ tbody tr td input.subtotal-input{width:72px;text-align:right;font-weight:bold;}
             <div style="display:flex;gap:6px;flex-wrap:wrap;">
                 <button type="button" class="btn btn-green btn-sm" onclick="openQuickSearch()">🔥 常用商品搜尋</button>
                 <button type="button" class="btn btn-orange btn-sm" onclick="openFloatModal()">💰 設定開台現金</button>
-                <button type="button" class="btn btn-blue btn-sm" onclick="sendDailyReport()">📧 發送今日報告</button>
-                <button type="button" class="btn btn-red btn-sm" id="btnSettle" onclick="openSettleModal()">🧮 結算</button>
+                
             </div>
-        </div>
-    </div>
-</div>
-
-<!-- ★★★ 結算彈窗 ★★★ -->
-<div class="modal" id="settleModal">
-    <div class="modal-inner" style="width:720px;">
-        <h3>🧮 班次結算</h3>
-        <div class="float-info" id="settlePeriod" style="margin-bottom:10px;"></div>
-        <table style="font-size:13px;margin-bottom:12px;">
-            <thead><tr><th>付款方式</th><th style="text-align:right;">累積金額 (HK$)</th></tr></thead>
-            <tbody id="settlePayBody"></tbody>
-            <tfoot><tr style="font-weight:bold;background:#e8f1ff;"><td>合計</td><td id="settleGrand" style="text-align:right;">0.00</td></tr></tfoot>
-        </table>
-        <div class="void-info-box" style="margin-bottom:12px;">
-            <b>現金結餘明細</b>
-            <div style="margin-top:6px;line-height:2;">
-                開台現金：<span id="settleFloat" style="font-weight:bold;">0.00</span><br>
-                − 支出（費用）：<span id="settleExpense" style="font-weight:bold;color:#dc3545;">0.00</span><br>
-                − Void 退現金：<span id="settleVoidCash" style="font-weight:bold;color:#dc3545;">0.00</span><br>
-                ＋ 現金收款：<span id="settleCashIn" style="font-weight:bold;color:#28a745;">0.00</span><br>
-                <hr style="border:none;border-top:1px dashed #999;margin:4px 0;">
-                現金結餘（應有）：<span id="settleCashBal" style="font-weight:bold;font-size:16px;color:#0052cc;">0.00</span>
-            </div>
-        </div>
-        <div class="void-btn-row">
-            <button class="btn btn-red" onclick="confirmSettle()">✅ 確認結算（清零重新累積）</button>
-            <button class="btn btn-blue" onclick="refreshSettle()">🔄 重新整理</button>
-            <button class="btn" onclick="closeSettleModal()">關閉</button>
         </div>
     </div>
 </div>
@@ -550,6 +523,7 @@ tbody tr td input.subtotal-input{width:72px;text-align:right;font-weight:bold;}
             <button type="button" class="pay-item" data-pay="PayMe">PayMe</button>
             <button type="button" class="pay-item" data-pay="Stripe">Stripe</button>
             <button type="button" class="pay-item" data-pay="PayPal">PayPal</button>
+             <button type="button" class="pay-item" data-pay="Union">Union</button>
         </div>
         <div class="pay-log" id="payLogBox">已付明細：無</div>
 
@@ -712,7 +686,7 @@ tbody tr td input.subtotal-input{width:72px;text-align:right;font-weight:bold;}
         </div>
         <p style="font-size:11px;color:#999;margin-top:10px;">
             💡 開台現金是每天開店時收銀機裡的備用現金，用於找贖客人。<br>
-            設定後，「發送今日報告」會自動計算「應有現金」。
+            設定後，每日結算時會用此值計算「應有現金」。
         </p>
     </div>
 </div>
@@ -760,7 +734,7 @@ tbody tr td input.subtotal-input{width:72px;text-align:right;font-weight:bold;}
             <p style="font-size:12px;color:#888;margin-bottom:8px;">
                 💡 點選下方任一訂單行 → 展開顯示該訂單的每一項商品明細<br>
                 📤 <button type="button" class="btn btn-orange btn-sm" onclick="exportDetailItems()">匯出明細 Excel</button>
-                <button type="button" class="btn btn-blue btn-sm" onclick="sendDailyReport()" style="margin-left:6px;">📧 發送今日報告</button>
+                
             </p>
             <div class="record-table" id="detailOrdersTableBox">
                 <p style="color:#999;padding:10px;text-align:center;">載入中...</p>
@@ -773,10 +747,12 @@ tbody tr td input.subtotal-input{width:72px;text-align:right;font-weight:bold;}
         <!-- Tab 2: 日期查詢 -->
         <div class="sale-panel" id="tab-date">
             <div class="date-picker-row">
-                <label>日期</label>
-                <input type="date" id="saleQueryDate">
-                <button type="button" class="btn btn-blue btn-sm" onclick="loadOrdersForDate(null)">🔍 查詢該日</button>
-                <button type="button" class="btn btn-green btn-sm" onclick="loadOrdersForDate(new Date())">📅 回到今日</button>
+                <label>起</label>
+                <input type="date" id="saleSDate2">
+                <label>至</label>
+                <input type="date" id="saleEDate2">
+                <button type="button" class="btn btn-blue btn-sm" onclick="loadOrdersForDate(null)">🔍 查詢範圍</button>
+                <button type="button" class="btn btn-green btn-sm" onclick="setDateRangeToToday()">📅 本日</button>
             </div>
             <div class="sale-summary-bar">
                 <span>查詢日營業額: <b id="dateTotalAmt">HK$ 0</b></span>
@@ -786,6 +762,7 @@ tbody tr td input.subtotal-input{width:72px;text-align:right;font-weight:bold;}
             <div class="record-table" id="dateTableBox">
                 <p style="color:#999;padding:10px;text-align:center;">請選擇日期後查詢</p>
             </div>
+            <div id="orderDateExpand"></div>
             <div style="margin-top:10px;">
                 <button type="button" class="btn btn-orange btn-sm" onclick="exportDateOrders()">📤 匯出該日訂單 Excel</button>
             </div>
@@ -830,8 +807,8 @@ tbody tr td input.subtotal-input{width:72px;text-align:right;font-weight:bold;}
 
 <!-- 80mm 熱感紙收據 -->
 <div class="receipt" id="receiptDom">
-    <div class="r-title" id="rShopName">8BOXING 泰拳用品店-銅鑼灣店</div>
-<div class="r-bold" style="text-align:center; font-size:12px;">銅鑼灣商業大廈1702室-Tel:23302550<br>
+    <div class="r-title" id="rShopName"></div>
+<div class="r-bold" style="text-align:center; font-size:12px;" id="rShopAddr"><br>
 </div>
 
     <div class="r-center r-bold" id="rShopBranch" style="text-align: center; font-size:18px">RECEIPT</div>
@@ -868,7 +845,7 @@ tbody tr td input.subtotal-input{width:72px;text-align:right;font-weight:bold;}
 <!-- ★★★ Void 收據（補齊，平時隱藏；與 printVoidReceipt() 所用 id 一一對應）★★★ -->
 <div class="receipt" id="voidReceiptDom">
     <div class="r-center; r-bold" style="color:black;font-size:16px;">✖ VOID / 已取消 ✖</div>
-    <div class="r-title" id="voidShopName">8BOXING 泰拳用品店-銅鑼灣店</div>
+    <div class="r-title" id="voidShopName"></div>
     <div class="r-line"></div>
     <div class="r-row"><span>單號：</span><span id="voidRid" class="r-bold"></span></div>
     <div class="r-row"><span>日期：</span><span id="voidRtime"></span></div>
@@ -901,11 +878,11 @@ tbody tr td input.subtotal-input{width:72px;text-align:right;font-weight:bold;}
 printer.alignCenter();
 printer.setTypeFontA();
 printer.bold(true);
-printer.println("8BOXING 泰拳用品店-銅鑼灣店");
+printer.println("{{SHOP_NAME}}");
 printer.bold(false);
 printer.alignCenter();
 printer.setTypeFontA();
-printer.println("銅鑼灣商業大廈1702室   Tel:23302550");
+printer.println("{{SHOP_ADDR}}");
 printer.alignCenter();
 printer.setTypeFontA();
 printer.setTextDoubleHeight();
@@ -1013,217 +990,22 @@ printer.partialCut();
 
 <script>
 /* ============================================================
-   ★★★ V35 結算模組（三規則：流入/退款/支出，嚴格 cwb，0 次 supabase.rpc）★★★
-   ============================================================ */
-const SETTLE_KEYS = {
-    start: 'pos_settle_start',       // 本次結算週期起點（ISO）
-    float: 'pos_cash_float',         // 開台現金
-    history: 'pos_settle_history'    // 結算歷史
-};
-const PAY_METHODS = ['VISA','MASTER','Cash','支付寶','微信支付','八達通','AE','Stripe','PayPal','PayMe','Union'];
-
-// 取得 supabase client
-let __sb = null;
-function _sb(){ if(__sb) return __sb; __sb = window.sb || window.supabase; return __sb; }
-function _sbClient(){ return _sb(); }
-
-// 金額四捨五入至兩位
-function r2(n){ return Math.round((parseFloat(n)||0)*100)/100; }
-
-// 讀開台現金（settings 表優先，否則 localStorage）
-async function getCashFloat(){
-    try{
-        var s = await _sb().from('settings').select('value').eq('key','cash_float').limit(1);
-        if(s && s.data && s.data.length){ return r2(s.data[0].value); }
-    }catch(e){}
-    var lf = parseFloat(localStorage.getItem(SETTLE_KEYS.float)||'0')||0;
-    return r2(lf);
-}
-
-// 讀/存結算起始時間
-function getSettleStart(){
-    var t = localStorage.getItem(SETTLE_KEYS.start);
-    if(t) return t;
-    var now = new Date().toISOString();
-    localStorage.setItem(SETTLE_KEYS.start, now);
-    return now;
-}
-function setSettleStart(iso){ localStorage.setItem(SETTLE_KEYS.start, iso); }
-
-// 開啟結算彈窗
-async function openSettleModal(){
-    document.getElementById('settleModal').classList.add('open');
-    await refreshSettle();
-}
-
-function closeSettleModal(){
-    document.getElementById('settleModal').classList.remove('open');
-}
+ * ★★★ 分店設定（單一控制點：切換分店只需改這裡）★★★
+ *   SHOP      : 寫入 orders / pay_records / void_records / expenses
+ *               表的 shop_mk 欄位值，'cwb' = 銅鑼灣, 'mk' = 旺角
+ *   STOCK_COL : 該分店使用的庫存欄位，CWB='stock', MK='stockmm'
+ *   RPC_DEC   : 對應的資料庫扣庫存函數名
+ *   SHOP_NAME / SHOP_ADDR : 收據顯示用店名/地址
+ * ------------------------------------------------------------
+ *   本檔為「CWB 銅鑼灣分店」專用版（以 V40 為基礎）
+ * ========================================================== */
+var SHOP      = 'cwb';                     // 分店代碼（shop_mk 欄值）
+var STOCK_COL = 'stock';                  // 本分店庫存欄位
+var RPC_DEC   = 'decrement_stock';        // 對應 DB 扣庫 RPC（操作 stock 欄）
+var SHOP_NAME = '8BOXING 泰拳用品店-銅鑼灣店';
+var SHOP_ADDR = '銅鑼灣商業大廈1702室-Tel:23302550';
 
 /* ============================================================
-   ★★★ V36 結算計算核心 ★★★
-   嚴格依照用戶指定規則（以「結算次數」為單位，不按每日）：
-
-   【起點】上次結算時間 last_settle_time
-           - 首次（今日尚未結算過）→ 今日凌晨 00:00:00（香港時間）
-           - 已結算過 → 上次「確認結算」的瞬間
-           - period = (last_settle_time, now]
-           - 「每次按結算清零」：confirmSettle() 把 last_settle_time 設為「現在」，
-             下一輪即從此刻重新累積
-
-   【流入】 pay_records
-           - created_at > since
-           - shop_mk = 'cwb'（寫入時已標記）
-           - 按 pay_type 分組，累加 amount
-           （void 單的原始付款「照計入」，不作廢 —— 因退款另計流出①）
-
-   【流出① 退款】 void_records
-           - created_at > since（退款發生時間）
-           - shop_mk = 'cwb'
-           - 按 refund_method 分組，累加 amount（退款總額寫入時已存於 amount 欄）
-
-   【流出② 支出】 expenses
-           - created_at > since
-           - shop_mk = 'cwb'
-           - 全加
-
-   【現金結餘】 = 開台 + inflow['Cash'] − refundOut['Cash'] − expenseOut
-   ============================================================ */
-
-// 今日凌晨 00:00:00（香港時間）的 ISO 字串
-function todayMidnightISO(){
-      var now = new Date();
-  var m = String(now.getMonth()+1).padStart(2,'0');
-  var d = String(now.getDate()).padStart(2,'0');
-  // 1046行：強制鎖定本地00:00:00，不帶毫秒
-  var localMid = new Date(now.getFullYear()+'-'+m+'-'+d+'T00:00:00'); 
-  // 1048行：轉UTC後，直接.split('.')砍掉所有毫秒，補上乾淨:00
-  return new Date(localMid.getTime() - localMid.getTimezoneOffset()*60000).toISOString().split('.')[0].substring(0,16)+':00';
-}
-
-// 讀上次結算時間：settings 表優先，其次 localStorage，首次則回傳「今日凌晨」
-async function loadSettleStartISO(){
-    try{
-        var s = await _sb().from('settings').select('value').eq('key','last_settle_time').limit(1);
-        if(s && s.data && s.data.length && s.data[0].value){ return s.data[0].value; }
-    }catch(e){}
-    var local = localStorage.getItem(SETTLE_KEYS.start);
-    if(local) return local;
-    return todayMidnightISO(); // 首次 → 今日凌晨 00:00
-}
-async function refreshSettle(){
-  var s = await _sb().auth.getSession();
-  if(!s.session){ console.warn('⚠️ 結算：無登入Token，RLS擋'); return; }
-  var sinceISO = await loadSettleStartISO();   // 例：'2026-08-29T00:00'
-  var sinceDisplay = new Date(sinceISO).toLocaleString('zh-HK');
-  var sinceClean = sinceISO.replace(/\.\d+Z$/, '').substring(0, 16) + ':00';
-  document.getElementById('settlePeriod').innerText = '結算週期：' + sinceDisplay + ' 起 (以結算次數為單位)';
-
-    // ---------- ① 撈 pay_records（本週期，cwb）----------
-    //    shop_mk 欄位（V36 起寫入時必標 'cwb'）；舊資料若無 shop_mk 則用 orders 關聯兜底
-    var payRes = await _sb().from('pay_records')
-        .select('*')
-        .gte('create_at', sinceClean)
-        .eq('shop_mk', 'cwb');
-    var payRows = (payRes && payRes.data) || [];
-
-    // ---------- ② 撈 void_records（本週期，cwb，amount=退款總額）----------
-    var voidRes = await _sb().from('void_records')
-        .select('*')
-        .gte('create_at', sinceClean)
-        .eq('shop_mk', 'cwb');
-    var voidRows = (voidRes && voidRes.data) || [];
-
-    // ---------- ③ 撈 expenses（本週期，cwb）----------
-    var expRes = await _sb().from('expenses')
-        .select('*')
-        .gte('create_at', sinceClean)
-        .eq('shop_mk', 'cwb');
-    var expRows = (expRes && expRes.data) || [];
-
-    // ===== 流入：pay_records，限定 cwb，按 pay_type 累加（void 單原始付款照計入）=====
-    var inflow = {};
-    PAY_METHODS.forEach(function(m){ inflow[m] = 0; });
-    payRows.forEach(function(p){
-        if((p.shop_mk||'') !== 'cwb') return;          // ★ 只計 cwb（直接看 pay_records.shop_mk）
-        var pt = p.pay_type || 'Cash';
-        if(inflow[pt] === undefined) inflow[pt] = 0;
-        inflow[pt] += r2(p.amount);
-    });
-
-    // ===== 流出-退款：void_records，按 refund_method 累扣，限定 cwb =====
-    var refundOut = {};
-    PAY_METHODS.forEach(function(m){ refundOut[m] = 0; });
-    voidRows.forEach(function(v){
-        if((v.shop_mk||'') !== 'cwb') return;          // ★ 只計 cwb（void_records 已有 shop_mk+amount）
-        var rm = v.refund_method || 'Cash';
-        if(refundOut[rm] === undefined) refundOut[rm] = 0;
-        refundOut[rm] += r2(v.amount);                 // amount 即退款總額（void 時寫入）
-    });
-
-    // ===== 流出-支出：expenses，限定 cwb =====
-    var totalExpense = 0;
-    expRows.forEach(function(e){
-        if((e.shop_mk||'') !== 'cwb') return;          // ★ 只計 cwb
-        totalExpense += r2(e.amount);
-    });
-
-    // ===== 付款方式累積（流入各項；退款已獨立顯示，不在此扣回）=====
-    var totals = {};
-    PAY_METHODS.forEach(function(m){ totals[m] = inflow[m]; });
-
-    // ===== 現金結餘 =====
-    var cashFloat   = await getCashFloat();
-    var cashIn      = inflow['Cash'] || 0;           // 流入中的 Cash
-    var cashRefund  = refundOut['Cash'] || 0;        // 退現金（流出）
-    var cashBalance = r2(cashFloat) + r2(cashIn) - r2(cashRefund) - r2(totalExpense);
-
-    // ===== 渲染：付款方式清單 =====
-    var body = document.getElementById('settlePayBody');
-    body.innerHTML = '';
-    var grand = 0;
-    PAY_METHODS.forEach(function(m){
-        var amt = r2(totals[m]);
-        grand += amt;
-        body.innerHTML += '<tr><td>'+m+'</td><td style="text-align:right;">'+amt.toFixed(2)+'</td></tr>';
-    });
-    document.getElementById('settleGrand').innerText = r2(grand).toFixed(2);
-
-    // ===== 渲染：現金明細 =====
-    document.getElementById('settleFloat').innerText     = cashFloat.toFixed(2);
-    document.getElementById('settleCashIn').innerText    = cashIn.toFixed(2);
-    document.getElementById('settleVoidCash').innerText  = cashRefund.toFixed(2);
-    document.getElementById('settleExpense').innerText   = totalExpense.toFixed(2);
-    document.getElementById('settleCashBal').innerText  = cashBalance.toFixed(2);
-
-    console.log('[V36 結算] since=', sinceISO, '(今日凌晨=', todayMidnightISO(), ')');
-    console.log('[V36 結算] 流入(inflow)=', inflow);
-    console.log('[V36 結算] 退款流出(refundOut)=', refundOut);
-    console.log('[V36 結算] 支出=', totalExpense, '| 開台=', cashFloat);
-    console.log('[V36 結算] 現金結餘=', cashBalance);
-}
-
-// 確認結算：存歷史 + 重置起點為「現在」
-async function confirmSettle(){
-    var snap = {
-        time: new Date().toISOString(),
-        since: await loadSettleStartISO(),
-        payBody: document.getElementById('settlePayBody').innerHTML,
-        grand: document.getElementById('settleGrand').innerText,
-        cashBalance: document.getElementById('settleCashBal').innerText
-    };
-    try{
-        var hist = JSON.parse(localStorage.getItem(SETTLE_KEYS.history)||'[]');
-        hist.unshift(snap);
-        localStorage.setItem(SETTLE_KEYS.history, JSON.stringify(hist.slice(0,30)));
-        // 跨裝置同步：寫入 settings 表
-        await _sb().from('settings').upsert({key:'last_settle_time', value: snap.time}, {onConflict:'key'});
-    }catch(e){ console.warn('結算存檔失敗', e); }
-    // 重置結算週期起點 → 後續付款重新累積
-    try { localStorage.setItem(SETTLE_KEYS.start, snap.time); } catch(e){}
-    toast('✅ 已結算，數字已清零，開始新一輪累積');
-    closeSettleModal();
-}
 
 
 /* ========== ★★★ 登入邏輯（原有，不動）★★★ ========== */
@@ -1335,7 +1117,13 @@ var memSearchDebounce = null;
  *  工具
  * ===================================================================== */
 function roundMoney(n){ return Math.round((n + Number.EPSILON) * 100) / 100; }
-function calcLineSubtotal(item){ return roundMoney(item.price * item.num * (1 - item.discount / 100)); }
+// ★ V38 移植：若使用者手動修改過小計，則優先使用手動輸入的小計（isCustomSubtotal 鎖定）
+function calcLineSubtotal(item){
+    if(item.isCustomSubtotal && item.subtotal !== undefined){
+        return roundMoney(item.subtotal);
+    }
+    return roundMoney(item.price * item.num * (1 - item.discount / 100));
+}
 
 function tickClock(){ document.getElementById('clock').innerText = new Date().toLocaleString('zh-HK'); }
 setInterval(tickClock,1000); tickClock();
@@ -1419,7 +1207,7 @@ window.loadMemberHistory=async function(phone,name){
     list.innerHTML='<p style="color:#999;padding:20px;text-align:center;">載入中...</p>';
     openModal('memHistoryModal');
 
-    var ordRes=await supabase.from('orders').select('id,total_amount,staff_name,create_at,status').eq('customer_phone',phone).eq('status','active').order('create_at',{ascending:false}).limit(5);
+    var ordRes=await supabase.from('orders').select('id,total_amount,staff_name,create_at,status').eq('customer_phone',phone).eq('status','active').eq('shop_mk', SHOP).order('create_at',{ascending:false}).limit(5);
     var orders=ordRes.data||[];
     if(orders.length===0){
         info.innerHTML='<div><b>會員：</b> '+(name||'')+'</div><div><b>電話：</b> '+(phone||'')+'</div><div><b>尚無消費紀錄</b></div>';
@@ -1427,7 +1215,7 @@ window.loadMemberHistory=async function(phone,name){
         return;
     }
     var orderIds=orders.map(function(o){return o.id;});
-    var itemRes=await supabase.from('order_item').select('order_id,product_name,name,single_price,price,qty,quantity,discount').in('order_id',orderIds);
+    var itemRes=await supabase.from('order_item').select('order_id,product_name,name,single_price,price,qty,quantity,discount').in('order_id',orderIds).eq('shop_mk', SHOP);
     var items=itemRes.data||[];
     var byOrder={}; items.forEach(function(it){ (byOrder[it.order_id]=byOrder[it.order_id]||[]).push(it); });
 
@@ -1653,14 +1441,14 @@ window.delStaff=function(){
 window.addGood=async function(){
     var code=document.getElementById('barcode').value.trim();
     if(!code){showToast('請輸入條碼');return;}
-    var res=await supabase.from('products').select('id,barcode,name,price,stock').eq('barcode',code).single();
+    var res=await supabase.from('products').select('id,barcode,name,price,'+STOCK_COL).eq('barcode',code).single();
     var sq=safeQuery(res,'掃條碼查商品');
     if(sq.isRLSError){showToast('⚠️ 資料庫權限錯誤，請聯絡管理員');return;}
     var data=res.data,error=res.error;
     if(error||!data){ openQuickAddProductModal(code); return; }
     var exist=cart.find(function(x){return x.barcode===code;});
     if(exist){ exist.num+=1; }
-    else { cart.push({pid:data.id,barcode:code,name:data.name,price:Number(data.price),num:1,discount:0,stock:data.stock||0}); }
+    else { cart.push({pid:data.id,barcode:code,name:data.name,price:Number(data.price),num:1,discount:0,stock:Number(data[STOCK_COL])||0}); }
     document.getElementById('barcode').value=''; renderTable(); calcMoney(); document.getElementById('barcode').focus();
 };
 document.getElementById('barcode').addEventListener('keydown',function(e){ if(e.key==='Enter'){e.preventDefault();addGood();}});
@@ -1717,19 +1505,19 @@ window.submitQuickAddProduct = async function(){
     barcode: barcode,
     name: name,
     price: roundMoney(price),
-    stock: stock,
     create_time: new Date().toISOString()
   };
+  payload[STOCK_COL] = stock;   /* 依分店寫入對應庫存欄（CWB=stock, MK=stockmm） */
 
   /* 先檢查是否剛好已存在（並發/重複） */
-  var existRes = await supabase.from('products').select('id,barcode,name,price,stock').eq('barcode',barcode).single();
+  var existRes = await supabase.from('products').select('id,barcode,name,price,'+STOCK_COL).eq('barcode',barcode).single();
   var sq = safeQuery(existRes,'新增商品前查重');
   if(sq.isRLSError){ showToast('⚠️ 資料庫權限錯誤，請聯絡管理員'); return; }
 
   var pid, finalName=name, finalPrice=price, finalStock=stock;
   if(existRes.data && !existRes.error){
     /* 已存在：直接加入購物車 */
-    pid = existRes.data.id; finalName=existRes.data.name; finalPrice=Number(existRes.data.price); finalStock=Number(existRes.data.stock)||0;
+    pid = existRes.data.id; finalName=existRes.data.name; finalPrice=Number(existRes.data.price); finalStock=Number(existRes.data[STOCK_COL])||0;
     showToast('此條碼已存在，已直接加入購物車');
   } else {
     /* 不存在：insert */
@@ -1759,19 +1547,30 @@ document.getElementById('qaCancelBtn').addEventListener('click', function(){ clo
 
 
 window.updateName=function(idx,val){ cart[idx].name=val.trim()||cart[idx].name; updateRowDOM(idx); calcMoney(); };
-window.updatePrice=function(idx,val){ var v=parseFloat(val); if(isNaN(v)||v<0)v=cart[idx].price; cart[idx].price=v; updateRowDOM(idx); calcMoney(); };
-window.updateQty=function(idx,val){ var v=parseInt(val)||1; cart[idx].num=Math.max(1,v); updateRowDOM(idx); calcMoney(); };
-window.updateDisc=function(idx,val){ var v=parseFloat(val)||0; cart[idx].discount=Math.min(100,Math.max(0,v)); updateRowDOM(idx); calcMoney(); };
+// ★ V38 移植：修改售價、數量或折扣時，重置手動小計鎖定，讓金額按公式計算
+window.updatePrice=function(idx,val){ var v=parseFloat(val); if(isNaN(v)||v<0)v=cart[idx].price; cart[idx].price=v; cart[idx].isCustomSubtotal=false; updateRowDOM(idx); calcMoney(); };
+window.updateQty=function(idx,val){ var v=parseInt(val)||1; cart[idx].num=Math.max(1,v); cart[idx].isCustomSubtotal=false; updateRowDOM(idx); calcMoney(); };
+window.updateDisc=function(idx,val){ var v=parseFloat(val)||0; cart[idx].discount=Math.min(100,Math.max(0,v)); cart[idx].isCustomSubtotal=false; updateRowDOM(idx); calcMoney(); };
+// ★ V38 移植：手動修改【小計】→ 反算折扣（保留1位小數）並固定小計金額
 window.updateSubtotal=function(idx,val){
     var item=cart[idx]; if(!item)return;
     if(val===''||val===null)return;
     var v=parseFloat(val); if(isNaN(v)||v<0)return;
-    var original=item.price*item.num; if(original<=0)return;
-    item.discount=(v>=original)?0:Math.round((1-v/original)*100);
-    item.subtotal=v;
+
+    var original = item.price * item.num;
+    if(original > 0){
+        var discPercent = ((1 - (v / original)) * 100);
+        item.discount = Math.max(0, Math.round(discPercent * 10) / 10); // 計算折扣（保留1位小數）
+    }
+    item.subtotal = roundMoney(v);
+    item.isCustomSubtotal = true; // 鎖定小計，不被折扣四捨五入影響
+
     var tb=document.querySelector('#orderTable tbody');
-    var tr=tb.querySelectorAll('tr')[idx]; if(!tr)return;
-    var discInput=tr.querySelector('.disc-input'); if(discInput)discInput.value=item.discount;
+    var tr=tb.querySelectorAll('tr')[idx];
+    if(tr){
+        var discInput=tr.querySelector('.disc-input');
+        if(discInput) discInput.value = item.discount;
+    }
     calcMoney();
 };
 
@@ -1788,13 +1587,21 @@ function updateRowDOM(idx){
 }
 window.updateRowDOM = updateRowDOM;
 
+// ★ V38 移植：底部的「應付金額」100% 精確等於畫面上所有小計之加總（四捨五入）
 function calcMoney(){
-    var totalRaw=0,discountRaw=0,finalRaw=0;
-    cart.forEach(function(i){ var o=roundMoney(i.price*i.num); var r=calcLineSubtotal(i); totalRaw+=o; discountRaw+=roundMoney(o-r); finalRaw+=r; i.subtotal=r; });
-    var finalRounded=Math.round(finalRaw);
+    var totalRaw=0, finalRaw=0;
+    cart.forEach(function(i){
+        var o=roundMoney(i.price*i.num);
+        var r=calcLineSubtotal(i); // 自動套用自訂（手動）小計
+        totalRaw += o;
+        finalRaw += r;
+        i.subtotal = r;
+    });
+    var discountRaw = totalRaw - finalRaw; // 折扣 = 原價總額 − 小計加總
+    var finalRounded = Math.round(finalRaw); // 加總後四捨五入至整數
     document.getElementById('totalAll').innerText=totalRaw.toFixed(2);
-    document.getElementById('discountAll').innerText=discountRaw.toFixed(2);
-    document.getElementById('finalAll').innerText=finalRounded.toFixed(2);
+    document.getElementById('discountAll').innerText=Math.max(0, discountRaw).toFixed(2);
+    document.getElementById('finalAll').innerText=finalRaw.toFixed(2);
     document.getElementById('bottomTotal').innerText=finalRounded;
     totalNeedPay=finalRounded;
 }
@@ -1866,7 +1673,7 @@ window.loadMemberHistory=async function(phone,name){
     openModal('memHistoryModal');
 
     /* 取最近 5 筆有效（非 void）訂單，依建立時間倒序 */
-    var ordRes=await supabase.from('orders').select('id,total_amount,staff_name,create_at,status').eq('customer_phone',phone).eq('status','active').order('create_at',{ascending:false}).limit(5);
+    var ordRes=await supabase.from('orders').select('id,total_amount,staff_name,create_at,status').eq('customer_phone',phone).eq('status','active').eq('shop_mk', SHOP).order('create_at',{ascending:false}).limit(5);
     var orders=ordRes.data||[];
     if(orders.length===0){
         info.innerHTML='<div><b>會員：</b> '+(name||'')+'</div><div><b>電話：</b> '+(phone||'')+'</div><div><b>尚無消費紀錄</b></div>';
@@ -1874,7 +1681,7 @@ window.loadMemberHistory=async function(phone,name){
         return;
     }
     var orderIds=orders.map(function(o){return o.id;});
-    var itemRes=await supabase.from('order_item').select('order_id,product_name,name,barcode,single_price,price,qty,quantity,discount').in('order_id',orderIds);
+    var itemRes=await supabase.from('order_item').select('order_id,product_name,name,barcode,single_price,price,qty,quantity,discount').in('order_id',orderIds).eq('shop_mk', SHOP);
     var items=itemRes.data||[];
     var byOrder={}; items.forEach(function(it){ (byOrder[it.order_id]=byOrder[it.order_id]||[]).push(it); });
 
@@ -2032,6 +1839,22 @@ window.confirmCheckout=async function(e){
     if(window._checkoutLock){return;}
     window._checkoutLock=true;
 
+    /* ★ V42: 扣庫存 fallback 函數（定義在迴圈外，避免重複宣告；操作 STOCK_COL = stock 或 stockmm） */
+    async function directUpdateStock(pid, qty){
+        try {
+            var curStockRes=await supabase.from('products').select(STOCK_COL).eq('id',pid).single();
+            if(curStockRes.data){
+                var newStock=Math.max(0,(Number(curStockRes.data[STOCK_COL])||0)-qty);
+                var updObj={}; updObj[STOCK_COL]=newStock;
+                var updRes=await supabase.from('products').update(updObj).eq('id',pid);
+                if(updRes.error){ console.error('直接更新 '+STOCK_COL+' 失敗：',updRes.error.message); showToast('⚠ 扣庫存失敗：'+updRes.error.message); }
+                else { console.log('Fallback 直接更新 '+STOCK_COL+' OK -> product',pid,':',(Number(curStockRes.data[STOCK_COL])||0),'→',newStock); }
+            } else if(curStockRes.error) {
+                console.error('讀取 '+STOCK_COL+' 失敗：',curStockRes.error.message); showToast('⚠ 讀取庫存失敗：'+curStockRes.error.message);
+            }
+        } catch(directErr){ console.error('扣庫存直接更新例外：',directErr); showToast('⚠ 扣庫存例外：'+directErr.message); }
+    }
+
     var paidTotal=payGroup.reduce(function(s,i){return s+i.money;},0);
     if(Math.abs(paidTotal-totalNeedPay)>0.01){
         alert('尚未付清！\n應付：'+totalNeedPay+'\n已付：'+paidTotal.toFixed(2)+'\n尚欠：'+(totalNeedPay-paidTotal).toFixed(2));
@@ -2050,7 +1873,7 @@ window.confirmCheckout=async function(e){
             customer_name:nowCustomer.isWalk?'WALK IN':nowCustomer.name,
             customer_phone:nowCustomer.isWalk?'':nowCustomer.phone,
             status:'active',
-            shop_mk:'cwb'
+            shop_mk: SHOP
         }).select('id,create_at').single();
 
         if(res.error||!res.data){
@@ -2074,27 +1897,22 @@ window.confirmCheckout=async function(e){
                 discount:g.discount,
                 product_name:g.name,
                 barcode:g.barcode,
-                shop_mk:'cwb'
+                shop_mk: SHOP
             });
             if(itemInsertRes.error){console.warn('寫入 order_item 警告：',itemInsertRes.error.message);}
-            /* ★ V28: 扣庫存（decrement_stock 參數必須係 pid / qty，對應 DB 函數） */
+            /* ★ V42 修復：扣庫存（依分店庫存欄 STOCK_COL；RPC 用 RPC_DEC，失敗/報錯一律 fallback 直接 update STOCK_COL）
+             * 舊版 bug：rpcRes.error 時只 console.warn，fallback 寫在 catch 裡永遠不執行 → stockmm 沒扣到。
+             * 現改為：RPC 成功就結束；RPC 報錯或拋例外都一定跑到 directUpdateStock()，保證扣到 stockmm。
+             */
+            var rpcOk=false;
             try {
-                var rpcRes=await supabase.rpc('decrement_stock',{pid:g.pid,qty:g.num});
-                if(rpcRes.error){ console.warn('RPC decrement_stock 回傳錯誤（改用直接更新）：',rpcRes.error.message); }
-                else { console.log('decrement_stock OK -> product',g.pid,'qty',g.num); }
+                var rpcRes=await supabase.rpc(RPC_DEC,{pid:g.pid,qty:g.num});
+                if(rpcRes && rpcRes.error){ console.warn('RPC '+RPC_DEC+' 回傳錯誤（將改用直接更新 '+STOCK_COL+'）：',rpcRes.error.message); }
+                else { rpcOk=true; console.log(RPC_DEC+' OK -> product',g.pid,'qty',g.num); }
             } catch(rpcErr) {
-                console.warn('RPC decrement_stock 失敗，改用直接更新：',rpcErr);
-                try {
-                    var curStockRes=await supabase.from('products').select('stock').eq('id',g.pid).single();
-                    if(curStockRes.data){
-                        var newStock=Math.max(0,(Number(curStockRes.data.stock)||0)-g.num);
-                        var updRes=await supabase.from('products').update({stock:newStock}).eq('id',g.pid);
-                        if(updRes.error){ console.error('直接更新 stock 失敗：',updRes.error.message); }
-                    } else if(curStockRes.error) {
-                        console.error('讀取 stock 失敗：',curStockRes.error.message);
-                    }
-                } catch(directErr){ console.error('扣庫存直接更新例外：',directErr); }
+                console.warn('RPC '+RPC_DEC+' 拋例外（將改用直接更新 '+STOCK_COL+'）：',rpcErr);
             }
+            if(!rpcOk){ await directUpdateStock(g.pid, g.num); }
         }
 
         /* Step 3: 寫入 pay_records 表（含找贖） */
@@ -2104,7 +1922,7 @@ window.confirmCheckout=async function(e){
                 pay_type:payGroup[pi].type,
                 amount:payGroup[pi].money,
                 change_amount:payGroup[pi].change_amount||0,
-                shop_mk:'cwb'
+                shop_mk: SHOP
             });
             if(payInsertRes.error){
                 /* ★ V28: 付款紀錄寫入失敗升級為 alert + Toast，唔再靜默 */
@@ -2195,6 +2013,9 @@ function fillReceipt(oid,time,staffName){
     }
     try {
         var rtn='RTAA'+String(oid).padStart(6,'0');
+        setText('rShopName', SHOP_NAME);
+        setText('rShopAddr', SHOP_ADDR);
+        setText('voidShopName', SHOP_NAME);
         setText('rid',rtn);
         setText('rtime',time||'');
         setText('rstaff',staffName||'');
@@ -2220,8 +2041,6 @@ function fillReceipt(oid,time,staffName){
               }).join(' / ')
             : ('Cash HK$' + (totalNeedPay||0).toFixed(2));
         setText('rpayway',payText);
-        setText('rbarcodeText',rtn);
-        setBarcode(rtn);
     } catch(fillErr) {
         console.error('fillReceipt 錯誤：',fillErr);
     }
@@ -2273,7 +2092,9 @@ window.generateEscPosScript = function(cartItems, order){
     tpl = tpl.replace(/\{\{RECEIPT_NO\}\}/g, rno)
              .replace(/\{\{DATETIME\}\}/g, now)
              .replace(/\{\{CUSTOMER\}\}/g, cust)
-             .replace(/\{\{ITEMS\}\}/g, itemsBlock);
+             .replace(/\{\{ITEMS\}\}/g, itemsBlock)
+             .replace(/\{\{SHOP_NAME\}\}/g, SHOP_NAME)
+             .replace(/\{\{SHOP_ADDR\}\}/g, SHOP_ADDR);
 
     /* 包成可直接執行的 Node.js 腳本（需已 npm i node-thermal-printer） */
     var wrap =
@@ -2308,7 +2129,7 @@ window.reprintReceipt = async function(prefilledOrderId) {
         if (ordRes.error || !ordRes.data) { alert("找不到這張單號！\n錯誤：" + (ordRes.error ? ordRes.error.message : '無資料')); return; }
         var order = ordRes.data;
 
-        var itemsRes = await supabase.from('order_item').select('*').eq('order_id',orderId);
+        var itemsRes = await supabase.from('order_item').select('*').eq('order_id',orderId).eq('shop_mk', SHOP);
         var items = itemsRes.data || [];
 
         /* ---------- 重建 payGroup：緩存優先 → DB → 兜底 ---------- */
@@ -2398,7 +2219,7 @@ window.reprintReceipt = async function(prefilledOrderId) {
         console.error('重印錯誤：',err);
         alert('重印失敗：'+err.message);
     }
-};
+};;
 
 /* =====================================================================
  *  Void 單據
@@ -2413,19 +2234,19 @@ window.voidReceipt = async function(prefilledOrderId) {
     }
     if (!orderId) { alert("單號不能為空"); return; }
 
-    var ordRes = await supabase.from('orders').select('id,total_amount,staff_name,customer_name,customer_phone,create_at,status').eq('id',orderId).single();
+    var ordRes = await supabase.from('orders').select('id,total_amount,staff_name,customer_name,customer_phone,create_at,status').eq('id',orderId).eq('shop_mk', SHOP).single();
     if (ordRes.error || !ordRes.data) { alert("找不到這張單號！"); return; }
     var order = ordRes.data;
     if (order.status==='void') { alert("此單號已經被 Void 過了！"); return; }
 
-    var itemsRes = await supabase.from('order_item').select('*').eq('order_id',orderId);
+    var itemsRes = await supabase.from('order_item').select('*').eq('order_id',orderId).eq('shop_mk', SHOP);
     var items = itemsRes.data || [];
 
     /* 讀付款紀錄：緩存優先 → DB → 兜底（同 reprintReceipt 邏輯一致，防 RLS 攔截導致「無/未知」） */
     var pays = [];
     try { var vc = localStorage.getItem('paycache_' + orderId); if (vc) pays = JSON.parse(vc) || []; } catch(e) {}
     if (pays.length === 0) {
-        var payRes = await supabase.from('pay_records').select('*').eq('order_id',orderId);
+        var payRes = await supabase.from('pay_records').select('*').eq('order_id',orderId).eq('shop_mk', SHOP);
         var dbPays = (payRes && payRes.data) || [];
         if (dbPays.length > 0) {
             var fldPT=(dbPays[0].pay_type!==undefined)?'pay_type':'type';
@@ -2461,7 +2282,7 @@ window.voidReceipt = async function(prefilledOrderId) {
     if (saleModalEl) saleModalEl.style.zIndex = '9998';
     openModal('voidModal');
     setTimeout(function(){document.getElementById('voidRefundSelect').focus();},100);
-};
+};;
 
 window.confirmVoid = async function(e) {
     if(e){e.stopPropagation();e.preventDefault();}
@@ -2482,14 +2303,18 @@ window.confirmVoid = async function(e) {
             remark:remark,
             operator:staffName,
             amount:Number(order.total_amount)||0,
-            shop_mk:'cwb'
+            void_type:'order',   /* 整單 Void；單項退貨為 'item'（見 voidSingleItem） */
+            shop_mk: SHOP
         });
 
         for(var i=0;i<items.length;i++){
             var it=items[i]; var pid=it.product_id||it.pid; var qty=Number(it.qty)||Number(it.quantity)||0;
             if(!pid||qty<=0)continue;
-            var curRes=await supabase.from('products').select('stock').eq('id',pid).single();
-            if(curRes.data) await supabase.from('products').update({stock:(Number(curRes.data.stock)||0)+qty}).eq('id',pid);
+            var curRes=await supabase.from('products').select(STOCK_COL).eq('id',pid).single();
+            if(curRes.data){
+                var obj={}; obj[STOCK_COL]=(Number(curRes.data[STOCK_COL])||0)+qty;
+                await supabase.from('products').update(obj).eq('id',pid);
+            }
         }
 
         /* ★ 修正3：唔再自動彈出 Void 收據視窗/叫 printVoidReceipt()，
@@ -2564,6 +2389,135 @@ function printVoidReceipt(order,items,pays,refundMethod,remark,operator){
 window.printVoidReceipt = printVoidReceipt;
 
 /* =====================================================================
+ *  Void 快捷操作（展開明細區呼叫，不需再 prompt 輸入單號）
+ *  - quickVoidOrder(oid)  : 整單 Void（直接帶入 oid，走 confirmVoid 流程）
+ *  - voidSingleItem(...)  : 單項退貨（部分退貨，只退某一項商品的指定數量）
+ * ===================================================================== */
+
+/* 整單 Void：由展開區「🗑️ Void 整單」按鈕呼叫，直接帶 oid，不用 prompt */
+window.quickVoidOrder = async function(oid){
+    if(!oid) return;
+    if(!confirm('確定 Void 整張訂單 #'+oid+'？\n\n此操作會標記整單為 Void 並還原全部庫存，不可復原！')) return;
+
+    /* 複用 voidReceipt 的查詢邏輯填充 voidOrderData，再呼叫 confirmVoid */
+    var ordRes = await supabase.from('orders').select('*').eq('id', oid).eq('shop_mk', SHOP).single();
+    if(ordRes.error || !ordRes.data){ alert('找不到該單（或不是本分店單據）'); return; }
+    if(ordRes.data.status==='void'){ alert('此單已經是 Void 狀態'); return; }
+    voidOrderData = ordRes.data;
+
+    var itemRes = await supabase.from('order_item').select('*').eq('order_id', oid).eq('shop_mk', SHOP);
+    var payRes  = await supabase.from('pay_records').select('*').eq('order_id', oid).eq('shop_mk', SHOP);
+    voidItemsData = itemRes.data||[];
+    voidPaysData  = payRes.data||[];
+
+    /* 自動帶入退款方式：優先取原單第一筆付款方式，否則預設 Cash */
+    var firstPay = (voidPaysData[0]&&(voidPaysData[0].pay_type||voidPaysData[0].type)) || 'Cash';
+    document.getElementById('voidInfoBox').innerHTML =
+        '<div>單號 <b>#'+oid+'</b></div>'+
+        '<div>原金額 <b>HK$ '+Math.round(Number(ordRes.data.total_amount))+'</b></div>'+
+        '<div>營業員 '+ordRes.data.staff_name+'</div>'+
+        '<div>客戶 '+(ordRes.data.customer_name||'WALK IN')+'</div>'+
+        '<div style="margin-top:6px;color:#dc3545;">⚠️ 整單 Void：將還原全部商品庫存</div>';
+    /* 若有退款方式下拉，自動選取；沒有也不影響 */
+    var refundSel=document.getElementById('voidRefundSelect');
+    if(refundSel && firstPay){ try{ refundSel.value=firstPay; }catch(e){} }
+    document.getElementById('voidRemarkInput').value='';
+    openModal('voidModal');
+    /* 讓 confirmVoid 在點「確認 Void」時直接執行（UI 上由使用者再確認一次） */
+};
+/* 單項 Void（部分退貨）
+   - oid        : 所屬訂單 id
+   - itemId     : order_item.id（主鍵）
+   - maxQty     : 該項目前可退的最大數量
+   流程：輸入退貨數量 → 寫 void_records（void_type='item'）→ 還原 stockmm → 更新該項 qty → 重算訂單總額 */
+window.voidSingleItem = async function(oid, itemId, maxQty){
+    if(!oid || !itemId){ alert('參數錯誤'); return; }
+    var qtyStr = prompt('輸入退貨數量（此項最多可退 '+maxQty+'）：', '1');
+    if(qtyStr===null) return;
+    var qty = parseInt(qtyStr);
+    if(isNaN(qty) || qty<=0 || qty>maxQty){ alert('退貨數量無效（必須 1 ~ '+maxQty+'）'); return; }
+
+    var reason = prompt('退貨原因（可留空）：') || '';
+
+    /* 1) 讀取該項目原始資料 */
+    var itRes = await supabase.from('order_item').select('*').eq('id', itemId).eq('shop_mk', SHOP).single();
+    if(itRes.error || !itRes.data){ alert('找不到該商品項目'); return; }
+    var it = itRes.data;
+    var productId = it.product_id || it.pid;
+    var pr = Number(it.single_price||it.price)||0;
+    var dc = Number(it.discount)||0;
+    var refundAmt = roundMoney(pr * qty * (1 - dc/100));
+
+    if(!confirm('確認退貨？\n\n商品：'+(it.product_name||it.name)+'\n數量：'+qty+' 件\n退款金額：HK$ '+Math.round(refundAmt)+'\n\n⚠️ 庫存將自動還原')) return;
+    /* 2) 寫入 void_records（單項退貨，帶 order_item_id + qty + void_type） */
+    var staffName = (document.getElementById('staff')||{}).value || '未知';
+    var ins = await supabase.from('void_records').insert({
+        order_id: oid,
+        order_item_id: itemId,
+        product_id: productId,
+        qty: qty,
+        amount: refundAmt,
+        refund_method: 'Cash',   /* 單項退貨預設退款方式；可自行調整 */
+        remark: reason,
+        operator: staffName,
+        void_type: 'item',
+        shop_mk: SHOP
+    });
+    if(ins.error){ alert('退貨紀錄寫入失敗：'+ins.error.message); return; }
+
+    /* 3) 還原庫存（stockmm）：優先 RPC，失敗則直接 update */
+    try {
+        var rpcRes = await supabase.rpc(RPC_DEC, {pid: productId, qty: qty});
+        if(rpcRes && rpcRes.error){ throw new Error(rpcRes.error.message); }
+    } catch(rpcErr) {
+        try {
+            var cur = await supabase.from('products').select(STOCK_COL).eq('id', productId).single();
+            if(cur.data){
+                var upd={}; upd[STOCK_COL] = Math.max(0, (Number(cur.data[STOCK_COL])||0) + qty);
+                await supabase.from('products').update(upd).eq('id', productId);
+            }
+        } catch(updErr){ console.error('庫存還原失敗', updErr); }
+    }
+
+    /* 4) 更新該項目剩餘數量；若全部退完則標記 status='void' */
+    var newQty = Math.max(0, maxQty - qty);
+    if(newQty===0){
+        await supabase.from('order_item').update({qty:0, status:'void'}).eq('id', itemId).eq('shop_mk', SHOP);
+    } else {
+        await supabase.from('order_item').update({qty:newQty}).eq('id', itemId).eq('shop_mk', SHOP);
+    }
+
+    /* 5) 重算訂單總額（只算未 void 的項目） */
+    var allRes = await supabase.from('order_item')
+        .select('single_price,price,qty,quantity,discount,status').eq('order_id', oid).neq('status','void');
+    var allItems = allRes.data||[];
+    var newTotal = allItems.reduce(function(s,x){
+        var xp=Number(x.single_price||x.price)||0;
+        var xq=Number(x.qty||x.quantity)||0;
+        var xd=Number(x.discount)||0;
+        return s + roundMoney(xp*xq*(1-xd/100));
+    },0);
+    newTotal = Math.round(newTotal);
+    await supabase.from('orders').update({total_amount:newTotal}).eq('id', oid);
+
+    showToast('✅ 已退貨 '+qty+' 件，退款 HK$ '+Math.round(refundAmt)+'（訂單 #'+oid+' 新總額 HK$ '+newTotal+'）');
+
+    /* 6) 重新整理當前視窗（今日營業額 / 日期查詢 都會更新） */
+    if(document.getElementById('saleModal').classList.contains('open')){
+        if(document.getElementById('detailOrdersTableBox').innerHTML.indexOf('載入')>=0 || currentOrdersList.length>=0){
+            loadTodayDetail();
+        }
+    }
+    /* ★ V48：退貨完成後，無論展開區是否開啟，立即同步主表格「金額」欄 */
+    updateOrderRowAmount(oid, newTotal);
+
+    var dBox=document.getElementById('orderDetailExpand');
+    var dtBox=document.getElementById('orderDateExpand');
+    if(dBox && dBox.innerHTML.trim()!==''){ loadOrderExpand(oid,'orderDetailExpand',{source:'detail'}); }
+    if(dtBox && dtBox.innerHTML.trim()!==''){ loadOrderExpand(oid,'orderDateExpand',{source:'date'}); }
+};
+
+/* =====================================================================
  *  ★★★ 支出功能 ★★★
  * ===================================================================== */
 window.openExpenseModal = function(){
@@ -2579,7 +2533,7 @@ window.submitExpense = async function(){
     if(!amount || amount<=0){alert('請輸入有效的金額');return;}
     if(!reason){alert('請輸入支出原因');return;}
 
-    var res = await supabase.from('expenses').insert({amount:amount, reason:reason, shop_mk:'cwb'});
+    var res = await supabase.from('expenses').insert({amount:amount, reason:reason, shop_mk: SHOP});
     if(res.error){alert('新增支出失敗：'+res.error.message);return;}
 
     closeModal('expenseModal');
@@ -2595,7 +2549,7 @@ async function loadTodayExpenses(){
     var startISO = new Date(dateStr+'T00:00:00').toISOString();
     var endISO = new Date(dateStr+'T23:59:59').toISOString();
 
-    var res = await supabase.from('expenses').select('*').gte('created_at',startISO).lte('created_at',endISO).order('created_at',{ascending:false});
+    var res = await supabase.from('expenses').select('*').gte('created_at',startISO).lte('created_at',endISO).eq('shop_mk', SHOP).order('created_at',{ascending:false});
     var list = res.data || [];
     var total = list.reduce(function(s,e){return s+Number(e.amount);},0);
     document.getElementById('detailExpenseTotal').innerText = 'HK$ '+Math.round(total);
@@ -2639,27 +2593,24 @@ loadFloatSetting();
 
 /* 開啟設定彈窗 */
 window.openFloatModal = async function(){
-    await loadFloatSetting();
-    document.getElementById('floatAmount').value = cashFloatAmount;
-    var infoBox = document.getElementById('floatInfoBox');
-    infoBox.innerHTML = '<div><b>目前開台現金：</b> HK$ ' + cashFloatAmount + '</div>' +
-                       '<div><b>說明：</b> 這是收銀機開店時的備用現金，用於找贖客人。</div>';
+    var res = await supabase.from('settings')
+        .select('value').eq('key','cash_float').eq('shop_mk', SHOP).single();
+    var val = (res.data && res.data.value!=null) ? Number(res.data.value) : cashFloatAmount;
+    document.getElementById('floatAmount').value = val;
+    document.getElementById('floatInfoBox').innerHTML =
+        '<div>目前 <b>'+SHOP_NAME+'</b> 開台現金：<b>HK$ '+val+'</b></div>'+
+        '<div>設定後每日結算時會用此值算應有現金。</div>';
     openModal('floatModal');
-    setTimeout(function(){document.getElementById('floatAmount').focus();},100);
 };
 
 /* 儲存開台現金 */
 window.saveFloat = async function(){
-    var val = parseFloat(document.getElementById('floatAmount').value);
-    if(!val || val < 0){alert('請輸入有效的金額');return;}
-    cashFloatAmount = Math.round(val);
-    var res = await supabase.from('settings').upsert({key:'cash_float', value:String(cashFloatAmount)}, {onConflict:'key'});
-    if(res.error){
-        try { localStorage.setItem('cashFloat', String(cashFloatAmount)); } catch(e){}
-        console.warn('Supabase settings 寫入失敗，已存到 localStorage');
-    }
-    closeModal('floatModal');
-    showToast('✅ 開台現金已設為 HK$ ' + cashFloatAmount);
+    var v = parseFloat(document.getElementById('floatAmount').value)||0;
+    cashFloatAmount = v;
+    var r = await supabase.from('settings')
+        .upsert({key:'cash_float', value:v, shop_mk:SHOP}, {onConflict:'key,shop_mk'});
+    if(r.error) alert('儲存失敗：'+r.error.message);
+    else { showToast('✅ 開台現金已儲存（'+SHOP_NAME+'）'); closeModal('floatModal'); }
 };
 
 /* =====================================================================
@@ -2700,7 +2651,7 @@ window.runQuickSearch = async function(){
         return 'name.ilike.%' + e + '%,barcode.ilike.%' + e + '%';
     }).join(',');
 
-    var q = supabase.from('products').select('id,barcode,name,price,stock');
+    var q = supabase.from('products').select('id,barcode,name,price,'+STOCK_COL);
     if(orClauses){ q = q.or(orClauses); }
     q = q.order('name').limit(1000);
 
@@ -2728,10 +2679,11 @@ window.runQuickSearch = async function(){
     var html2='<div style="padding:6px 10px;background:#e8f8e8;font-size:12px;color:#28a745;">找到 '+matched.length+' 件符合「'+keywords.join(' + ')+'」的商品 → 點擊加入購物車，或點「✏️編輯」修改商品</div>';
     html2+='<table><thead><tr><th>條碼</th><th>產品描述</th><th style="text-align:right;">售價</th><th style="text-align:right;">庫存</th><th style="text-align:center;">加入</th><th style="text-align:center;">編輯</th></tr></thead><tbody>';
     matched.forEach(function(p){
-        var outOfStock = p.stock<=0 ? 'out-of-stock' : '';
-        var stockText = p.stock<=0 ? '<span style="color:#dc3545;">缺貨</span>' : String(p.stock);
+        var pstock = Number(p[STOCK_COL])||0;
+        var outOfStock = pstock<=0 ? 'out-of-stock' : '';
+        var stockText = pstock<=0 ? '<span style="color:#dc3545;">缺貨</span>' : String(pstock);
         // 將商品資料序列化到 data 屬性（特殊字元安全）
-        var dataAttr = encodeURIComponent(JSON.stringify({pid:p.id,barcode:String(p.barcode||''),name:String(p.name||''),price:Number(p.price)||0,stock:Number(p.stock)||0}));
+        var dataAttr = encodeURIComponent(JSON.stringify({pid:p.id,barcode:String(p.barcode||''),name:String(p.name||''),price:Number(p.price)||0,stock:pstock}));
         html2+='<tr class="'+outOfStock+'" data-quick-product="'+dataAttr+'">'+
               '<td class="qs-cell" style="cursor:pointer;">'+(p.barcode||'')+'</td>'+
               '<td class="qs-cell" style="cursor:pointer;text-align:left;">'+(p.name||'')+'</td>'+
@@ -2818,7 +2770,8 @@ window.submitEditProduct = async function(){
     if(!name){showToast('請填寫產品描述');return;}
     if(isNaN(price)||price<0){showToast('請填寫有效的售價');return;}
 
-    var payload = {name:name, price:roundMoney(price), stock:stock};
+    var payload = {name:name, price:roundMoney(price)};
+    payload[STOCK_COL] = stock;   /* 只更新本分店庫存欄（CWB=stock, MK=stockmm），不影響另一分店 */
     var res = await supabase.from('products').update(payload).eq('id',d.pid);
     if(res.error){
         console.error('更新商品失敗：',res.error);
@@ -2872,39 +2825,24 @@ document.getElementById('quickSearchInput').addEventListener('keydown',function(
 /* =====================================================================
  *  ★★★ 發送每日營業報告（Email via Edge Function）★★★
  * ===================================================================== */
-window.sendDailyReport = async function(){
-    var btn = (event && event.target) ? event.target : null;
-    if(btn){ btn.disabled=true; btn.innerText='⏳ 發送中...'; }
-
-    try {
-        var { data, error } = await supabase.functions.invoke('send-daily-report', {
-            body: { shop: 'CWB', email: 'eightboxing@gmail.com' }
-        });
-
-        if(error){ throw new Error(error.message || 'Edge Function 呼叫失敗'); }
-
-        if(data && data.success){
-            showToast('✅ 營業報告已發送到 eightboxing@gmail.com', 4000);
-        } else {
-            throw new Error((data && data.error) || '發送失敗');
-        }
-    } catch(err) {
-        console.error('發送營業報告失敗：', err);
-        alert('發送失敗：' + err.message + '\n\n請確認：\n1. Supabase Edge Function "send-daily-report" 已部署\n2. 查看瀏覽器 Console 的詳細錯誤');
-    } finally {
-        if(btn){ btn.disabled=false; btn.innerText='📧 發送今日報告'; }
-    }
-};
+;
 
 /* =====================================================================
  *  營業額彈窗
  * ===================================================================== */
 window.openSaleModal=async function(){
     var today=new Date().toISOString().slice(0,10);
-    document.getElementById('saleQueryDate').value=today;
+    setDateRangeToToday();
     document.getElementById('detailDateLabel').innerText='今日 ('+today+')';
     switchSaleTab('tab-detail',document.querySelector('.sale-tab[data-tab="tab-detail"]'));
     openModal('saleModal'); await loadTodayDetail();
+};
+/* 日期查詢（Tab2）預設為「本日」起訖 */
+window.setDateRangeToToday=function(){
+    var today=new Date().toISOString().slice(0,10);
+    var s2=document.getElementById('saleSDate2'), e2=document.getElementById('saleEDate2');
+    if(s2) s2.value=today;
+    if(e2) e2.value=today;
 };
 window.switchSaleTab=function(tabId,btn){
     document.querySelectorAll('.sale-tab').forEach(function(t){t.classList.remove('active');});
@@ -2919,7 +2857,7 @@ window.loadTodayDetail=async function(){
     document.getElementById('detailOrdersTableBox').innerHTML='<p style="color:#999;padding:10px;text-align:center;">載入中...</p>';
     document.getElementById('orderDetailExpand').innerHTML='';
 
-    var ordRes=await supabase.from('orders').select('id,total_amount,staff_name,customer_name,create_at,status').gte('create_at',startISO).lte('create_at',endISO).order('create_at',{ascending:false});
+    var ordRes=await supabase.from('orders').select('id,total_amount,staff_name,customer_name,create_at,status').gte('create_at',startISO).lte('create_at',endISO).eq('shop_mk', SHOP).order('create_at',{ascending:false});
     var list=ordRes.data||[]; currentOrdersList=list; selectedOrderId=null;
 
     if(!list||list.length===0){
@@ -2933,7 +2871,7 @@ window.loadTodayDetail=async function(){
     var voidOrders   = list.filter(function(o){return o.status==='void';});
 
     var orderIds=activeOrders.map(function(o){return o.id;});
-    var itemsRes=await supabase.from('order_item').select('*').in('order_id',orderIds);
+    var itemsRes=await supabase.from('order_item').select('*').in('order_id',orderIds).eq('shop_mk', SHOP);
     var items=itemsRes.data||[]; currentDetailItems=items;
 
     /* ★ V37 修正：淨營業額以「有效訂單的 total_amount」為準
@@ -2969,26 +2907,166 @@ window.loadTodayDetail=async function(){
     html+='</tbody></table>';
     document.getElementById('detailOrdersTableBox').innerHTML=html;
     loadTodayExpenses();
+};;
+
+/* 共用：渲染一張訂單列表表格（今日營業額 + 日期查詢 共用）
+   - 每行點選展開商品明細
+   - 有效單右上角有「🗑️ Void 整單」按鈕 */
+function renderOrdersTable(orders, containerId, expandBoxId, expandFnName){
+    var box = document.getElementById(containerId);
+    if(!box){ return; }
+    if(!orders || orders.length===0){
+        box.innerHTML='<p style="color:#999;padding:10px;text-align:center;">暫無訂單</p>';
+        var eb=document.getElementById(expandBoxId); if(eb) eb.innerHTML='';
+        return;
+    }
+    var html='<table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr style="background:#e8f1ff;">'+
+        '<th style="padding:6px;border:1px solid #ddd;">單號</th>'+
+        '<th style="padding:6px;border:1px solid #ddd;">時間</th>'+
+        '<th style="padding:6px;border:1px solid #ddd;">營業員</th>'+
+        '<th style="padding:6px;border:1px solid #ddd;">客戶</th>'+
+        '<th style="padding:6px;border:1px solid #ddd;">金額</th>'+
+        '<th style="padding:6px;border:1px solid #ddd;">狀態</th>'+
+        '<th style="padding:6px;border:1px solid #ddd;">操作</th>'+
+        '</tr></thead><tbody>';
+    orders.forEach(function(o){
+        var isVoid=o.status==='void';
+        var time=new Date(o.create_at).toLocaleString('zh-HK');
+        var st=isVoid
+            ? '<span style="color:#dc3545;font-weight:bold;">VOID</span>'
+            : '<span style="color:#28a745;">有效</span>';
+        html+='<tr class="'+(isVoid?'void-row':'')+'" style="cursor:pointer;" data-oid="'+o.id+'" onclick="'+expandFnName+'('+o.id+')">'+
+            '<td style="padding:5px;border:1px solid #ddd;">#'+o.id+'</td>'+
+            '<td style="padding:5px;border:1px solid #ddd;">'+time+'</td>'+
+            '<td style="padding:5px;border:1px solid #ddd;">'+o.staff_name+'</td>'+
+            '<td style="padding:5px;border:1px solid #ddd;">'+(o.customer_name||'WALK IN')+'</td>'+
+            '<td style="padding:5px;border:1px solid #ddd;">HK$ '+Math.round(Number(o.total_amount||0))+'</td>'+
+            '<td style="padding:5px;border:1px solid #ddd;">'+st+'</td>'+
+            '<td style="padding:5px;border:1px solid #ddd;">'+
+                (isVoid?'':'<button type="button" class="btn btn-red btn-sm" onclick="event.stopPropagation();quickVoidOrder('+o.id+')">🗑️ Void 整單</button>')+
+            '</td>'+
+            '</tr>';
+        if(selectedOrderId===o.id){
+            html+='<tr><td colspan="7" style="padding:0;border:none;">'+
+                '<div id="'+expandBoxId+'" class="order-detail-expand"></div></td></tr>';
+        }
+    });
+    html+='</tbody></table>';
+    box.innerHTML=html;
+    /* 若有展開的，異步載入明細 */
+    if(selectedOrderId){ window[expandFnName](selectedOrderId); }
+}
+
+window.renderDetailOrdersTable=function(orders){ renderOrdersTable(orders,'detailOrdersTableBox','orderDetailExpand','selectOrderForDetail'); };
+window.renderDateTable=function(orders){ renderOrdersTable(orders,'dateTableBox','orderDateExpand','selectOrderForDate'); };
+
+/* ★ V48：同步更新主表格中該訂單的「金額」欄位
+   - 展開明細重算出的合計（已扣除已退項）同步回表頭
+   - 支援 detailOrdersTableBox / dateTableBox 兩個容器
+   - 直接改 DOM，不重新撈 DB，避免畫面閃爍 */
+window.updateOrderRowAmount=function(oid, amount){
+    var amtStr='HK$ '+Math.round(Number(amount)||0);
+    /* Tab1 銷售明細 */
+    var row=document.querySelector('#detailOrdersTableBox tr[data-oid="'+oid+'"]');
+    if(row){ var cells=row.querySelectorAll('td'); if(cells[4]) cells[4].innerText=amtStr; }
+    /* Tab2 日期查詢 */
+    var row2=document.querySelector('#dateTableBox tr[data-oid="'+oid+'"]');
+    if(row2){ var cells2=row2.querySelectorAll('td'); if(cells2[4]) cells2[4].innerText=amtStr; }
 };
+
+/* 共用：展開某訂單的商品明細，並提供「Void 整單」+「退此項（單項 Void）」操作
+   - opts.source: 'detail'（今日營業額）| 'date'（日期查詢）
+   - opts.isVoidOrder: 該單是否已整單 void */
+async function loadOrderExpand(oid, expandBoxId, opts){
+    opts=opts||{};
+    var box=document.getElementById(expandBoxId); if(!box) return;
+    box.innerHTML='<p style="color:#999;padding:6px;">載入中...</p>';
+
+    /* 明確 select id，供單項 Void 使用；並過濾本分店 */
+    var itemsRes=await supabase.from('order_item')
+        .select('id,product_id,product_name,name,barcode,single_price,price,qty,quantity,discount,status')
+        .eq('order_id', oid).eq('shop_mk', SHOP);
+    var items=itemsRes.data||[];
+    var payRes=await supabase.from('pay_records').select('*').eq('order_id',oid).eq('shop_mk', SHOP);
+    var pays=payRes.data||[];
+
+    var statusRes=await supabase.from('orders').select('status,staff_name,customer_name,total_amount').eq('id',oid).eq('shop_mk', SHOP).single();
+    var orderStatus=(statusRes.data&&statusRes.data.status)||'active';
+    var isVoidOrder = orderStatus==='void';
+
+    var html='<div class="order-detail-expand">';
+    /* 標題列：重印 + 整單 Void（已 void 的單不顯示按鈕） */
+    html+='<div style="display:flex;justify-content:space-between;align-items:center;"><h4 style="margin:0;">📋 訂單 #'+oid+' 的商品明細</h4><div style="display:flex;gap:6px;">';
+    if(!isVoidOrder){
+        html+='<button type="button" class="btn btn-orange btn-sm" onclick="reprintReceipt(\''+oid+'\')">🖨️ 重印此單</button>';
+        html+='<button type="button" class="btn btn-red btn-sm" onclick="quickVoidOrder(\''+oid+'\')">🗑️ Void 整單</button>';
+    }
+    html+='</div></div>';
+
+    /* 商品明細表：含「操作」欄位，每項可「退此項」 */
+    html+='<table style="width:100%;border-collapse:collapse;margin-top:6px;"><thead><tr><th>產品描述</th><th>售價</th><th>數量</th><th>折扣%</th><th>小計</th>'+(isVoidOrder?'<th>狀態</th>':'<th>操作</th>')+'</tr></thead><tbody>';
+    var subTotal=0;
+    items.forEach(function(it){
+        var pr=Number(it.single_price||it.price)||0;
+        var qy=Number(it.qty||it.quantity)||0;
+        var dc=Number(it.discount)||0;
+        var sub=roundMoney(pr*qy*(1-dc/100));
+        var itemVoided = it.status==='void';
+        if(!itemVoided) subTotal+=sub;
+        html+='<tr'+(itemVoided?' class="void-row"':'')+'>';
+        html+='<td>'+(it.product_name||it.name||'?')+'</td>';
+        html+='<td>$'+pr.toFixed(2)+'</td>';
+        html+='<td>'+qy+'</td>';
+        html+='<td>'+(dc>0?dc+'%':'')+'</td>';
+        html+='<td>$'+sub.toFixed(2)+'</td>';
+        if(isVoidOrder || itemVoided){
+            html+='<td><span style="color:#dc3545;font-size:12px;">已退</span></td>';
+        } else {
+            /* 單項 Void：傳入 item.id（order_item 主鍵）+ 最大可退數量 */
+            html+='<td><button type="button" class="btn btn-red btn-sm" onclick="voidSingleItem(\''+oid+'\','+Number(it.id)+','+qy+')">↩ 退此項</button></td>';
+        }
+        html+='</tr>';
+    });
+    if(items.length===0 && !isVoidOrder) html+='<tr><td colspan="6" style="color:#999;">無商品明細</td></tr>';
+    html+='</tbody></table>';
+
+    if(pays.length>0){
+        html+='<h4 style="margin-top:8px;">💰 付款紀錄</h4><table style="width:100%;border-collapse:collapse;"><thead><tr><th>方式</th><th>金額</th><th>找贖</th></tr></thead><tbody>';
+        var fldPT=(pays[0].pay_type!==undefined)?'pay_type':'type';
+        var fldAmt=(pays[0].amount!==undefined)?'amount':'amount';
+        var fldChg=(pays[0].change_amount!==undefined)?'change_amount':'change_amount';
+        pays.forEach(function(p){ var chg=Number(p[fldChg])||0; html+='<tr><td>'+p[fldPT]+'</td><td>HK$'+Number(p[fldAmt]).toFixed(2)+'</td><td>'+(chg>0?'<span style="color:#28a745;">$'+chg.toFixed(2)+'</span>':'-')+'</td></tr>'; });
+        html+='</tbody></table>';
+    }
+    if(isVoidOrder){ html+='<div style="margin-top:6px;color:red;font-weight:bold;">⚠️ 此單已 Void</div>'; }
+    html+='<div style="margin-top:6px;text-align:right;font-weight:bold;color:#0052cc;">本單合計: HK$ '+Math.round(subTotal)+'</div></div>';
+    box.innerHTML=html;
+    /* ★ V48：展開合計(subTotal)同步回主表格「金額」欄（扣除已退項後） */
+    updateOrderRowAmount(oid, subTotal);
+    box.scrollIntoView({behavior:'smooth',block:'nearest'});
+}
 
 window.selectOrderForDetail=async function(oid){
     selectedOrderId=oid;
     document.querySelectorAll('#detailOrdersTableBox tbody tr').forEach(function(tr){tr.classList.remove('expanded'); if(tr.dataset.oid==oid)tr.classList.add('expanded');});
     var expandBox=document.getElementById('orderDetailExpand'); expandBox.innerHTML='<p style="color:#999;padding:6px;">載入中...</p>';
 
-    var itemsRes=await supabase.from('order_item').select('*').eq('order_id',oid);
+    var itemsRes=await supabase.from('order_item').select('*').eq('order_id',oid).eq('shop_mk', SHOP);
     var items=itemsRes.data||[];
-    var payRes=await supabase.from('pay_records').select('*').eq('order_id',oid);
+    var payRes=await supabase.from('pay_records').select('*').eq('order_id',oid).eq('shop_mk', SHOP);
     var pays=payRes.data||[];
 
-    var statusRes=await supabase.from('orders').select('status').eq('id',oid).single();
+    var statusRes=await supabase.from('orders').select('status').eq('id',oid).eq('shop_mk', SHOP).single();
     var orderStatus=(statusRes.data&&statusRes.data.status)||'active';
 
     var html='<div class="order-detail-expand">';
     html+='<div style="display:flex;justify-content:space-between;align-items:center;"><h4 style="margin:0;">📋 訂單 #'+oid+' 的商品明細</h4><div style="display:flex;gap:6px;"><button type="button" class="btn btn-orange btn-sm" onclick="reprintReceipt(\''+oid+'\')">🖨️ 重印此單</button><button type="button" class="btn btn-red btn-sm" onclick="voidReceipt(\''+oid+'\')">🗑️ Void 此單</button></div></div>';
-    html+='<table style="width:100%;border-collapse:collapse;margin-top:6px;"><thead><tr><th>產品描述</th><th>售價</th><th>數量</th><th>折扣%</th><th>小計</th></tr></thead><tbody>';
+    html+='<table style="width:100%;border-collapse:collapse;margin-top:6px;"><thead><tr><th>產品描述</th><th>售價</th><th>數量</th><th>折扣%</th><th>小計</th><th>操作</th></tr></thead><tbody>';
     var subTotal=0;
-    items.forEach(function(it){ var pr=Number(it.single_price||it.price)||0; var qy=Number(it.qty||it.quantity)||0; var dc=Number(it.discount)||0; var sub=roundMoney(pr*qy*(1-dc/100)); subTotal+=sub; html+='<tr><td>'+(it.product_name||it.name||'?')+'</td><td>$'+pr.toFixed(2)+'</td><td>'+qy+'</td><td>'+(dc>0?dc+'%':'')+'</td><td>$'+sub.toFixed(2)+'</td></tr>'; });
+    items.forEach(function(it){ var pr=Number(it.single_price||it.price)||0; var qy=Number(it.qty||it.quantity)||0; var dc=Number(it.discount)||0; var sub=roundMoney(pr*qy*(1-dc/100)); subTotal+=sub; var itId = it.id; var isVoidItem = (it.status==='void');
+    html+='<tr'+(isVoidItem?' class="void-row"':'')+'><td>'+(it.product_name||it.name||'?')+'</td><td>$'+pr.toFixed(2)+'</td><td>'+qy+'</td><td>'+(dc>0?dc+'%':'')+'</td><td>$'+sub.toFixed(2)+'</td>';
+    html+='<td style="text-align:right;">'+(isVoidItem?'<span style="color:#dc3545;font-size:12px;">已退</span>':'<button type="button" class="btn btn-red btn-sm" onclick="voidSingleItem('+oid+','+itId+','+qy+')">↩ 退此項</button>')+'</td>';
+    html+='</tr>'; });
     html+='</tbody></table>';
     if(pays.length>0){
         html+='<h4 style="margin-top:8px;">💰 付款紀錄</h4><table style="width:100%;border-collapse:collapse;"><thead><tr><th>方式</th><th>金額</th><th>找贖</th></tr></thead><tbody>';
@@ -3001,20 +3079,32 @@ window.selectOrderForDetail=async function(oid){
     if(orderStatus==='void'){ html+='<div style="margin-top:6px;color:red;font-weight:bold;">⚠️ 此單已 Void</div>'; }
     html+='<div style="margin-top:6px;text-align:right;font-weight:bold;color:#0052cc;">本單合計: HK$ '+Math.round(subTotal)+'</div></div>';
     expandBox.innerHTML=html;
+    /* ★ V48：展開合計(subTotal)同步回主表格「金額」欄（扣除已退項後） */
+    updateOrderRowAmount(oid, subTotal);
     expandBox.scrollIntoView({behavior:'smooth',block:'nearest'});
+};;
+
+window.selectOrderForDate=async function(oid){
+    selectedOrderId=oid;
+    document.querySelectorAll('#dateTableBox tbody tr').forEach(function(tr){tr.classList.remove('expanded'); if(tr.dataset.oid==oid)tr.classList.add('expanded');});
+    await loadOrderExpand(oid,'orderDateExpand',{source:'date'});
 };
 
 window.loadOrdersForDate=async function(dateObj){
-    var dateStr = dateObj instanceof Date ? (dateObj.getFullYear()+'-'+String(dateObj.getMonth()+1).padStart(2,'0')+'-'+String(dateObj.getDate()).padStart(2,'0')) : document.getElementById('saleQueryDate').value;
-    if(!dateStr){showToast('請選擇日期');return;}
-    var startISO=new Date(dateStr+'T00:00:00').toISOString(); var endISO=new Date(dateStr+'T23:59:59').toISOString();
+    var dateStr = dateObj instanceof Date ? (dateObj.getFullYear()+'-'+String(dateObj.getMonth()+1).padStart(2,'0')+'-'+String(dateObj.getDate()).padStart(2,'0')) : null;
+    var s2 = document.getElementById('saleSDate2'), e2 = document.getElementById('saleEDate2');
+    var sDateVal = s2 ? s2.value : '', eDateVal = e2 ? e2.value : '';
+    if(!dateStr && (!sDateVal || !eDateVal)){ showToast('請選擇起訖日期'); return; }
+    var startISO = dateStr ? new Date(dateStr+'T00:00:00').toISOString() : new Date(sDateVal+'T00:00:00').toISOString();
+    var endISO  = dateStr ? new Date(dateStr+'T23:59:59').toISOString() : new Date(eDateVal+'T23:59:59').toISOString();
+    
     switchSaleTab('tab-date',document.querySelector('.sale-tab[data-tab="tab-date"]'));
     document.getElementById('dateTotalAmt').innerText='HK$ 0';
     document.getElementById('dateCount').innerText='0';
     document.getElementById('dateTableBox').innerHTML='<p style="color:#999;padding:10px;text-align:center;">載入中...</p>';
     document.getElementById('orderDetailExpand').innerHTML='';
 
-    var res=await supabase.from('orders').select('id,total_amount,staff_name,customer_name,create_at,status').gte('create_at',startISO).lte('create_at',endISO).order('create_at',{ascending:false});
+    var res=await supabase.from('orders').select('id,total_amount,staff_name,customer_name,create_at,status').gte('create_at',startISO).lte('create_at',endISO).eq('shop_mk', SHOP).order('create_at',{ascending:false});
     var list=res.data||[]; currentOrdersList=list; selectedOrderId=null;
 
     if(!list||list.length===0){
@@ -3043,7 +3133,7 @@ window.loadOrdersForDate=async function(dateObj){
 
     /* 查出這些訂單的全部商品明細，渲染成「銷售明細」表格（逐項商品） */
     var orderIds = activeList.map(function(o){return o.id;});
-    var itemRes = await supabase.from('order_item').select('*').in('order_id', orderIds);
+    var itemRes = await supabase.from('order_item').select('*').in('order_id', orderIds).eq('shop_mk', SHOP);
     var items = (itemRes.data)||[];
     currentDetailItems = items;
 
@@ -3076,7 +3166,9 @@ window.loadOrdersForDate=async function(dateObj){
     html+='</tbody></table>';
     html+='<div style="margin-top:8px;padding:8px 12px;background:#e8f1ff;border-radius:6px;font-size:13px;"><b>本日銷售明細合計：</b><span style="color:#0052cc;font-weight:bold;">HK$ '+Math.round(grandTotal)+'</span>（共 '+items.length+' 項商品 / '+activeList.length+' 張有效訂單）</div>';
     document.getElementById('dateTableBox').innerHTML=html;
-};
+};;
+
+
 
 /* =====================================================================
  *  ★★★ 進階查詢彈窗 ★★★
@@ -3123,11 +3215,11 @@ window.runAdvQuery = async function(){
 
     document.getElementById('advResultBox').innerHTML='<p style="color:#999;padding:20px;text-align:center;">查詢中...</p>';
 
-    var ordRes=await supabase.from('orders').select('id,total_amount,staff_name,customer_name,customer_phone,create_at,status').gte('create_at',startISO).lte('create_at',endISO).order('create_at',{ascending:false});
+    var ordRes=await supabase.from('orders').select('id,total_amount,staff_name,customer_name,customer_phone,create_at,status').gte('create_at',startISO).lte('create_at',endISO).eq('shop_mk', SHOP).order('create_at',{ascending:false});
     var allOrders=ordRes.data||[];
 
     var allOrderIds=allOrders.map(function(o){return o.id;});
-    var itemsRes=await supabase.from('order_item').select('*').in('order_id',allOrderIds);
+    var itemsRes=await supabase.from('order_item').select('*').in('order_id',allOrderIds).eq('shop_mk', SHOP);
     var allItems=itemsRes.data||[];
 
     var filteredOrders=allOrders;
@@ -3173,7 +3265,9 @@ window.runAdvQuery = async function(){
     document.getElementById('advExportBtn').style.display='inline-block';
 
     renderAdvQueryResults();
-};
+};;
+
+
 
 function renderAdvQueryResults(){
     var filteredOrders=advQueryResults;
@@ -3200,7 +3294,7 @@ function renderAdvQueryResults(){
         byOrder[o.id].forEach(function(it){grandTotal+=roundMoney((Number(it[fldPrice])||0)*(Number(it[fldQty])||0)*(1-(Number(it[fldDisc])||0)/100));});
     });
 
-    var html='<table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr><th>🕐時間</th><th>單號</th><th>條碼</th><th>產品描述</th><th style="text-align:right;">售價</th><th style="text-align:right;">數量</th><th style="text-align:right;">折扣%</th><th style="text-align:right;">小計</th></tr></thead><tbody>';
+    var html='<table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr><th>🕐時間</th><th>單號</th><th>條碼</th><th>產品描述</th><th style="text-align:right;">售價</th><th style="text-align:right;">數量</th><th style="text-align:right;">折扣%</th><th style="text-align:right;">小計</th><th>操作</th></tr></thead><tbody>';
     /* 先排有效訂單明細 */
     filteredOrders.forEach(function(o){
         var t=new Date(o.create_at).toLocaleString('zh-HK',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false});
@@ -3217,7 +3311,8 @@ function renderAdvQueryResults(){
             var sub=roundMoney(pr*qy*(1-dc/100));
             var prodName=(it[fldName])||(it.name)||'未知商品';
             var barcode=(it.barcode)||'';
-            html+='<tr><td>'+t+'</td><td>#'+(it.order_id||o.id)+'</td><td>'+barcode+'</td><td style="text-align:left;">'+prodName+'</td><td style="text-align:right;">$'+pr.toFixed(2)+'</td><td style="text-align:right;">'+qy+'</td><td style="text-align:right;">'+(dc>0?dc+'%':'')+'</td><td style="text-align:right;">$'+sub.toFixed(2)+'</td></tr>';
+            html+='<tr><td>'+t+'</td><td>#'+(it.order_id||o.id)+'</td><td>'+barcode+'</td><td style="text-align:left;">'+prodName+'</td><td style="text-align:right;">$'+pr.toFixed(2)+'</td><td style="text-align:right;">'+qy+'</td><td style="text-align:right;">'+(dc>0?dc+'%':'')+'</td><td style="text-align:right;">$'+sub.toFixed(2)+'</td>';
+            html+='<td style="text-align:center;"><button type="button" class="btn btn-red btn-sm" onclick="voidSingleItem('+o.id+','+Number(it.id)+','+qy+')">↩ 退此項</button></td></tr>';
         });
     });
     html+='</tbody></table>';
@@ -3289,11 +3384,11 @@ window.exportDateOrders=function(){
     if(!currentOrdersList||currentOrdersList.length===0){showToast('無訂單可匯出');return;}
     var rows=currentOrdersList.map(function(o){return {'單號':o.id,'時間':new Date(o.create_at).toLocaleString('zh-HK'),'營業員':o.staff_name,'客戶':o.customer_name,'金額':Number(o.total_amount)};});
     var ws=window.XLSX.utils.json_to_sheet(rows); var wb=window.XLSX.utils.book_new(); window.XLSX.utils.book_append_sheet(wb,ws,'訂單列表');
-    window.XLSX.writeFile(wb,'orders_'+document.getElementById('saleQueryDate').value+'.xlsx'); showToast('已匯出訂單列表');
+    window.XLSX.writeFile(wb,'orders_'+(document.getElementById('saleSDate2').value||document.getElementById('saleEDate2').value||'range')+'.xlsx'); showToast('已匯出訂單列表');
 };
 window.exportTodayOrders=async function(){
     var today=new Date(); var start=new Date(today.setHours(0,0,0,0)).toISOString(), end=new Date(today.setHours(23,59,59,999)).toISOString();
-    var res=await supabase.from('orders').select('*').gte('create_at',start).lte('create_at',end).order('create_at',{ascending:false});
+    var res=await supabase.from('orders').select('*').gte('create_at',start).lte('create_at',end).order('create_at',{ascending:false}).eq('shop_mk', SHOP);
     var list=res.data||[]; if(!list.length){showToast('今日無訂單');return;}
     var rows=list.map(function(o){return {'單號':o.id,'時間':new Date(o.create_at).toLocaleString('zh-HK'),'營業員':o.staff_name,'客戶':o.customer_name,'電話':o.customer_phone,'金額':Number(o.total_amount)};});
     var ws=window.XLSX.utils.json_to_sheet(rows); var wb=window.XLSX.utils.book_new(); window.XLSX.utils.book_append_sheet(wb,ws,'今日訂單');
@@ -3303,7 +3398,7 @@ window.exportTodayOrders=async function(){
 /* Excel 匯入 */
 document.getElementById('prodUpload').addEventListener('change',function(e){
     var f=e.target.files[0];if(!f)return; var r=new FileReader();
-    r.onload=async function(ev){ var wb=window.XLSX.read(ev.target.result,{type:'binary'}); var json=window.XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]); var arr=json.map(function(row){return{barcode:String(row['條碼']||row['barcode']||''),name:String(row['名稱']||row['name']||''),price:Number(row['售價']||row['price']||0),stock:Number(row['初始庫存']||row['stock']||0)};}).filter(function(x){return x.barcode&&x.name;}); if(!arr.length){alert('無有效資料');return;} var res=await supabase.from('products').upsert(arr,{onConflict:'barcode'}); if(res.error){alert('匯入失敗：'+res.error.message);return;} alert('✅ 成功匯入 '+arr.length+' 筆商品'); };
+    r.onload=async function(ev){ var wb=window.XLSX.read(ev.target.result,{type:'binary'}); var json=window.XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]); var arr=json.map(function(row){ var o={barcode:String(row['條碼']||row['barcode']||''),name:String(row['名稱']||row['name']||''),price:Number(row['售價']||row['price']||0)}; o[STOCK_COL]=Number(row['初始庫存']||row['stock']||row[STOCK_COL]||0); return o; }).filter(function(x){return x.barcode&&x.name;}); if(!arr.length){alert('無有效資料');return;} var res=await supabase.from('products').upsert(arr,{onConflict:'barcode'}); if(res.error){alert('匯入失敗：'+res.error.message);return;} alert('✅ 成功匯入 '+arr.length+' 筆商品'); };
     r.readAsBinaryString(f); e.target.value='';
 });
 document.getElementById('memUpload').addEventListener('change',function(e){
@@ -3340,12 +3435,13 @@ window.addStockFromCart = async function() {
         var pid = item.pid;
         if (!pid) { failList.push((item.name || '?') + '（無商品 ID）'); continue; }
         try {
-            var curRes = await supabase.from('products').select('stock').eq('id', pid).single();
+            var curRes = await supabase.from('products').select(STOCK_COL).eq('id', pid).single();
             if (curRes.error || !curRes.data) { failList.push((item.name || '?') + '（找不到商品）'); continue; }
-            var oldStock = Number(curRes.data.stock) || 0;
+            var oldStock = Number(curRes.data[STOCK_COL]) || 0;
             var addQty = Number(item.num) || 0;
             var newStock = oldStock + addQty;
-            var updRes = await supabase.from('products').update({ stock: newStock }).eq('id', pid);
+            var updObj = {}; updObj[STOCK_COL] = newStock;
+            var updRes = await supabase.from('products').update(updObj).eq('id', pid);
             if (updRes.error) { failList.push((item.name || '?') + '（' + updRes.error.message + '）'); }
             else { successCount++; console.log('📦 加庫存 ' + (item.name || pid) + ': ' + oldStock + ' → ' + newStock); }
         } catch (err) {
@@ -3372,25 +3468,34 @@ window.addStockFromCart = async function() {
  *  🔟 全單9折（購物車每項折扣% 設為 10）
  *  - 將 cart 每一項的 discount 設為 10（九折 = 10% 折扣）
  *  - 重算每項小計與整單合計
- *  - 空購物車時提示；操作前 confirm 確認
  * ===================================================================== */
 window.applyAllDiscount10 = function() {
-    if (!cart || cart.length === 0) { showToast('購物車沒有商品'); return; }
-    if (!confirm(
-        '確定要將購物車全部 ' + cart.length + ' 項商品套用【全單9折】嗎？\n\n' +
-        '（每項折扣% 將設為 10）'
-    )) { return; }
-    for (var i = 0; i < cart.length; i++) { cart[i].discount = 10; }
-    renderTable(); calcMoney();
-    showToast('✅ 已套用全單9折（每項折扣 10%）', 3000);
-    console.log('🔟 全單9折已套用：' + cart.length + ' 項，折扣% 設為 10');
-};
+  if (!cart || cart.length === 0) { showToast('購物車沒有商品'); return; }
 
+  if (!confirm(
+    '確定要將購物車全部 ' + cart.length + ' 項商品套用【全單9折】嗎？\n\n' +
+    '（每項折扣% 將設為 10，以售價為基準計算，忽略手動小計）'
+  )) { return; }
+
+  for (var i = 0; i < cart.length; i++) {
+    var price = parseFloat(cart[i].price) || 0;
+    var qty  = parseInt(cart[i].qty) || 1;
+
+    // 以售價為基準，折扣固定10%
+    cart[i].discount = 10;
+    cart[i].subtotal = price * qty * 0.9;   // ← 不四捨五入，保留原始精度
+  }
+
+  renderTable();
+  calcMoney();
+  showToast('已套用全單9折（共 ' + cart.length + ' 項）');
+  console.log('✅ 全單9折：以售價為基準，subtotal = price * qty * 0.9');
+};
 /* =====================================================================
  *  初始化
  * ===================================================================== */
 renderTable(); calcMoney(); showToast('系統就緒 ✅ v6.5');
-console.log('✅ POS 系統 v6.4 載入完成（CWB / 重印 + Void + 支出 + 進階查詢 + 找贖 + Float + 快捷搜尋 + Email報告 / 結帳列印解耦修復）');
+console.log('✅ POS 系統 v6.4 載入完成（'+SHOP_NAME+' / SHOP='+SHOP+' / STOCK_COL='+STOCK_COL+' / 重印 + Void + 支出 + 進階查詢 + 找贖 + Float + 快捷搜尋 + Email報告）');
 </script>
 </body>
 </html>
