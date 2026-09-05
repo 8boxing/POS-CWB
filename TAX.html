@@ -3,68 +3,138 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>POS-CWB 收銀系統</title>
+<title>POS-CWB 收銀系統 v3.5</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<!-- SheetJS 用於一鍵匯出報稅 Excel -->
+<script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: "PingFang SC", "Microsoft YaHei", sans-serif; background: #f5f6fa; color: #2c3e50; }
+  body { font-family: "PingFang TC", "Microsoft JhengHei", sans-serif; background: #f5f6fa; color: #2c3e50; }
   header { background: #2c3e50; color: #fff; padding: 14px 20px; display: flex; justify-content: space-between; align-items: center; }
   header h1 { font-size: 18px; }
   #loginBox { position: fixed; inset: 0; background: rgba(0,0,0,.5); display: flex; align-items: center; justify-content: center; z-index: 999; }
   #loginBox .card { background: #fff; padding: 24px; border-radius: 10px; width: 320px; }
   #loginBox input { width: 100%; padding: 10px; margin: 8px 0; border: 1px solid #ccc; border-radius: 6px; }
-  #loginBox button { width: 100%; padding: 10px; background: #3498db; color: #fff; border: none; border-radius: 6px; cursor: pointer; }
+  #loginBox button { width: 100%; padding: 10px; background: #3498db; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; }
+  
   .toolbar { padding: 16px 20px; display: flex; gap: 12px; flex-wrap: wrap; }
-  .toolbar button { padding: 12px 20px; border: none; border-radius: 8px; color: #fff; cursor: pointer; font-size: 14px; }
-  .btn-exp { background: #e67e22; } .btn-pay { background: #27ae60; } .btn-void { background: #c0392b; } .btn-order { background: #2980b9; }
+  .toolbar button { padding: 12px 20px; border: none; border-radius: 8px; color: #fff; cursor: pointer; font-size: 14px; font-weight: bold; transition: opacity 0.2s; }
+  .toolbar button:hover { opacity: 0.9; }
+  .btn-exp { background: #e67e22; } .btn-tax-exp { background: #d35400; } .btn-pay { background: #27ae60; } 
+  .btn-void { background: #c0392b; } .btn-order { background: #2980b9; }
+  .btn-member { background: #8e44ad; } .btn-cash { background: #16a085; } .btn-pay-method { background: #2980b9; }
+  .btn-product { background: #6366f1; }
   .status { padding: 0 20px; color: #7f8c8d; font-size: 13px; }
 
-  /* Modal */
+  /* Modal 通用樣式 */
   .modal { position: fixed; inset: 0; background: rgba(0,0,0,.5); display: none; align-items: center; justify-content: center; z-index: 100; }
   .modal.show { display: flex; }
-  .modal .box { background: #fff; border-radius: 12px; width: 95%; max-width: 1100px; max-height: 90vh; overflow: hidden; display: flex; flex-direction: column; }
+  .modal .box { background: #fff; border-radius: 12px; width: 95%; max-width: 1400px; max-height: 90vh; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 10px 25px rgba(0,0,0,0.2); }
   .modal .head { padding: 14px 20px; background: #2c3e50; color: #fff; display: flex; justify-content: space-between; align-items: center; }
-  .modal .head .close { cursor: pointer; font-size: 22px; }
-  .modal .filters { padding: 14px 20px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; border-bottom: 1px solid #eee; }
+  .modal .head .close { cursor: pointer; font-size: 24px; font-weight: bold; }
+  .modal .filters { padding: 14px 20px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; border-bottom: 1px solid #eee; background: #fafafa; position: relative; }
   .modal .filters input[type="date"],
   .modal .filters input[type="text"],
-  .modal .filters button { padding: 8px 10px; border: 1px solid #ccc; border-radius: 6px; }
-  .modal .filters button { background: #3498db; color: #fff; border: none; cursor: pointer; }
-  .modal .body { padding: 10px 20px; overflow-y: auto; }
-  table { width: 200%; border-collapse: collapse; font-size: 13px; }
-  th, td { padding: 8px; border-bottom: 1px solid #eee; text-align: left; }
-  th { background: #f0f2f5; position: sticky; top: 0; cursor: pointer; user-select: none; white-space: nowrap; }
+  .modal .filters select,
+  .modal .filters button { padding: 8px 12px; border: 1px solid #ccc; border-radius: 6px; font-size: 13px; }
+  .modal .filters button { background: #3498db; color: #fff; border: none; cursor: pointer; font-weight: bold; }
+
+  /* 搜尋建議下拉清單 */
+  .search-container { position: relative; display: inline-block; }
+  .suggest-box {
+    position: absolute; top: 100%; left: 0; right: 0; background: #fff;
+    border: 1px solid #3498db; border-radius: 0 0 8px 8px; box-shadow: 0 8px 16px rgba(0,0,0,0.15);
+    max-height: 260px; overflow-y: auto; z-index: 999; display: none; margin-top: 2px;
+  }
+  .suggest-box.show { display: block; }
+  .suggest-item { padding: 10px 14px; border-bottom: 1px solid #f0f0f0; cursor: pointer; display: flex; justify-content: space-between; font-size: 13px; }
+  .suggest-item:hover { background: #ebf5fb; color: #2980b9; }
+  
+  .table-wrapper { width: 100%; overflow-x: auto; overflow-y: auto; max-height: 55vh; }
+  .modal .body { padding: 0; overflow: hidden; }
+  
+  table { width: 100%; border-collapse: collapse; font-size: 13px; table-layout: fixed; }
+  th, td { padding: 8px 10px; border-bottom: 1px solid #eee; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  th { background: #f0f2f5; position: sticky; top: 0; cursor: pointer; user-select: none; z-index: 10; border-right: 1px solid #e2e6ea; }
   th:hover { background: #e2e6ea; }
   th .arrow { color: #3498db; font-size: 11px; }
-  td input width:max-content { padding: 6px; border: 1px solid #ddd; border-radius: 4px; }
+  td input, td select { width: 100%; padding: 5px 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 13px; }
+  td input:focus, td select:focus { border-color: #3498db; outline: none; }
   .row-actions button { padding: 4px 8px; margin: 0 2px; border: none; border-radius: 4px; cursor: pointer; color: #fff; }
   .btn-save { background: #27ae60; } .btn-del { background: #c0392b; }
-  tr.selected { background: #fff9e6; }
-  tr.selected td { background: #fff3cd; }
-  .chk { width: 18px; height: 18px; cursor: pointer; }
-  .summary { padding: 10px 20px; background: #f8f9fa; border-top: 1px solid #eee; display: flex; gap: 24px; flex-wrap: wrap; align-items: center; font-size: 14px; }
+  
+  tr { cursor: pointer; transition: background 0.15s; }
+  tr:hover { background: #f8f9fa; }
+  tr.selected { background: #fff9e6 !important; }
+  tr.selected td { background: #fff3cd !important; }
+  
+  .chk { width: 18px; height: 18px; cursor: pointer; vertical-align: middle; }
+  .summary { padding: 12px 20px; background: #f8f9fa; border-top: 1px solid #eee; display: flex; gap: 24px; flex-wrap: wrap; align-items: center; font-size: 14px; }
   .summary b { color: #c0392b; font-size: 16px; }
-  .modal .foot { padding: 12px 20px; border-top: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; }
-  .modal .foot button { padding: 10px 16px; border: none; border-radius: 6px; cursor: pointer; color: #fff; }
+  .modal .foot { padding: 12px 20px; border-top: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; background: #fff; }
+  .modal .foot button { padding: 8px 16px; border: none; border-radius: 6px; cursor: pointer; color: #fff; font-weight: bold; }
   .btn-add { background: #8e44ad; } .btn-refresh { background: #95a5a6; }
-  .btn-cash { background: #16a085; }
 
-  /* ★ 彈窗加寬 300px (1100 + 300 = 1400) */
-  .modal .box { max-width: 1400px; }
+  /* 統計卡片樣式 */
+  .card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 10px; }
+  .balance-card { background: #f8f9fa; padding: 16px; border-radius: 10px; border: 1px solid #e2e8f0; text-align: center; }
+  .balance-card.highlight { background: #e8f8f5; border-color: #16a085; }
+  .balance-card h4 { font-size: 13px; color: #7f8c8d; margin-bottom: 8px; }
+  .balance-card .amount { font-size: 22px; font-weight: bold; color: #2c3e50; }
 
+  /* 報表表格專用樣式 */
+  .report-table th, .report-table td { padding: 10px 14px; }
+  .report-table tfoot td { font-weight: bold; background: #f8f9fa; border-top: 2px solid #cbd5e1; }
+
+  /* 報稅支出專用表單 */
+  .tax-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; padding: 16px; background: #ebf5fb; border-radius: 8px; margin-bottom: 14px; border: 1px solid #aed6f1; }
+  .tax-form-group { display: flex; flex-direction: column; gap: 4px; }
+  .tax-form-group label { font-size: 12px; font-weight: bold; color: #2980b9; }
+  .tax-form-group input, .tax-form-group select { padding: 8px; border: 1px solid #aed6f1; border-radius: 6px; font-size: 13px; background: #fff; }
+
+  /* ===== 🔍 商品搜尋 Modal（V2 整合樣式） ===== */
+  #prodModal .box { max-width: 900px; }
+  #prodSearchInput {
+    width: 100%; padding: 14px 20px; font-size: 18px;
+    border: 2px solid #6366f1; border-radius: 12px; outline: none;
+    transition: box-shadow 0.2s;
+  }
+  #prodSearchInput:focus { box-shadow: 0 0 0 4px rgba(99,102,241,0.15); }
+  #prodLoadingSpinner {
+    position: absolute; right: 16px; top: 50%; transform: translateY(-50%);
+    color: #6366f1; font-size: 13px; font-weight: 600; animation: pulse 1.5s infinite;
+    display: none;
+  }
+  @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:.4;} }
+  .prod-hint { font-size: 12px; color: #94a3b8; margin-top: 6px; }
+  #prodResultBody td { white-space: normal; }
+
+  /* ★★★ 分店切換浮動按鈕（mk / cwb / all）★★★ */
+  #shopSwitchBtn {
+    position: fixed; top: 14px; right: 20px; z-index: 200;
+    padding: 9px 18px; color: #fff; border: none; border-radius: 22px;
+    font-size: 14px; font-weight: bold; cursor: pointer;
+    box-shadow: 0 3px 10px rgba(0,0,0,.2); transition: transform .1s, box-shadow .2s;
+  }
+  #shopSwitchBtn:hover { transform: scale(1.05); }
+  #shopSwitchBtn:active { transform: scale(.96); }
+  #shopSwitchBtn .arrow { font-size: 12px; opacity: .85; }
 </style>
 </head>
 <body>
 
 <header>
-  <h1>🏪 POS-CWB 收銀系統 v2.0</h1>
+  <h1>🏪 POS-CWB 收銀系統 v3.5</h1>
   <span id="userInfo"></span>
 </header>
+
+<!-- ★★★ 分店切換浮動按鈕（mk / cwb / all，循環切換）★★★ -->
+<button id="shopSwitchBtn" type="button" onclick="cycleShop()">🏪 CWB <span class="arrow">⇄</span></button>
 
 <!-- 登入框 -->
 <div id="loginBox">
   <div class="card">
-    <h2 style="margin-bottom:8px;">登入</h2>
+    <h2 style="margin-bottom:12px;">登入系統</h2>
     <input id="lgEmail" type="email" placeholder="Email">
     <input id="lgPwd" type="password" placeholder="密碼">
     <button onclick="posLogin()">登入</button>
@@ -73,109 +143,429 @@
 
 <!-- 主工具列 -->
 <div class="toolbar">
-  <button class="btn-exp" onclick="openModal('expenses')">💸 支出 Expenses</button>
+  <button class="btn-tax-exp" onclick="openTaxExpenseModal()">📊 報稅支出 Tax Expenses</button>
+  <button class="btn-exp" onclick="openModal('expenses')">💸 支出總表 All Expenses</button>
+  <button class="btn-product" onclick="openProductSearch()">🔍 商品搜尋</button>
   <button class="btn-pay" onclick="openModal('pay_records')">💰 收款 Pay Records</button>
   <button class="btn-void" onclick="openModal('void_records')">🚫 作廢 Void Records</button>
   <button class="btn-order" onclick="openModal('order_item')">🛒 明細 Order Items</button>
-  <button class="btn-cash" onclick="calcCashBalance()">💵 現金結餘 Cash Balance</button>
+  <button class="btn-member" onclick="openModal('members')">👥 會員 Members</button>
+  <button class="btn-cash" onclick="openCashModal()">💵 現金結餘 Cash Balance</button>
+  <button class="btn-pay-method" onclick="openPayMethodModal()">💳 付款方式結餘 Payment Balance</button>
 </div>
 <div class="status" id="status">就緒</div>
 
-<!-- 通用 Modal -->
-<div class="modal" id="modal">
-  <div class="box">
+<!-- 📊 稅務支出管理 Modal -->
+<div class="modal" id="taxExpenseModal">
+  <div class="box" style="max-width: 1200px;">
     <div class="head">
-      <span id="modalTitle">查詢</span>
-      <span class="close" onclick="closeModal()">&times;</span>
+      <span>📊 無限公司稅務支出管理 (Tax Expenses Manager)</span>
+      <span class="close" onclick="closeTaxExpenseModal()">&times;</span>
     </div>
-    <div class="filters">
-      <label>從 <input type="date" id="fStart"></label>
-      <label>到 <input type="date" id="fEnd"></label>
-      <label>🔍 搜尋 <input type="text" id="fSearch" placeholder="模糊搜尋..."></label>
-      <button onclick="loadData()">🔍 查詢</button>
-      <button class="btn-refresh" onclick="loadData()">↻ 重新整理</button>
-      <button onclick="clearSelection()" style="background:#95a5a6;">✖ 取消選取</button>
-    </div>
-    <div class="body">
-      <table id="grid">
-        <thead></thead>
-        <tbody></tbody>
-      </table>
-    </div>
-    <div class="summary">
-      <span>總筆數：<b id="sumCount">0</b></span>
-      <span>搜尋結果總金額：<b id="sumTotal">0.00</b></span>
-      <span>已選取筆數：<b id="selCount">0</b></span>
-      <span>已選取總金額：<b id="selTotal">0.00</b></span>
-    </div>
-    <div class="foot">
-      <button class="btn-add" onclick="addRow()">➕ 新增一筆</button>
-      <span id="rowCount"></span>
+    
+    <div style="padding: 16px; overflow-y: auto;">
+      <h3 style="font-size: 14px; color: #2980b9; margin-bottom: 8px;">➕ 快速錄入支出/費用</h3>
+      <div class="tax-form">
+        <div class="tax-form-group">
+          <label>單據/發票日期 Date</label>
+          <input type="date" id="txDate">
+        </div>
+        <div class="tax-form-group">
+          <label>報稅分類 Category (BIR52)</label>
+          <select id="txCategory">
+            <option value="租金與差餉 (Rent & Rates)">租金與差餉 (Rent & Rates)</option>
+            <option value="進貨/貨本 (Cost of Goods Sold)">進貨/貨本 (Cost of Goods Sold)</option>
+            <option value="薪金與強積金 (Salaries & MPF)">薪金與強積金 (Salaries & MPF)</option>
+            <option value="水電與電訊 (Utilities & Telecom)">水電與電訊 (Utilities & Telecom)</option>
+            <option value="廣告與推廣 (Marketing & Ads)">廣告與推廣 (Marketing & Ads)</option>
+            <option value="運費與物流 (Freight & Shipping)">運費與物流 (Freight & Shipping)</option>
+            <option value="門市雜費與維修 (Supplies & Repair)" selected>門市雜費與維修 (Supplies & Repair)</option>
+            <option value="資本開支/設備 (Capital Assets)">資本開支/設備 (Capital Assets)</option>
+          </select>
+        </div>
+        <div class="tax-form-group">
+          <label>金額 AmountTax (HKD)</label>
+          <input type="number" step="0.01" id="txAmount" placeholder="0.00">
+        </div>
+        <div class="tax-form-group">
+          <label>支付來源 Payment Method</label>
+          <select id="txPayMethod">
+            <option value="Owner_Private" selected>東主私人墊付 (Owner Private)</option>
+            <option value="Company_Bank">公司銀行戶口 (Company Bank)</option>
+            <option value="Cash">門市現金 (Shop Cash)</option>
+          </select>
+        </div>
+        <div class="tax-form-group">
+          <label>歸屬分店 Shop</label>
+          <select id="txShop">
+            <option value="cwb" selected>銅鑼灣店 (cwb)</option>
+            <option value="mk">旺角店 (mk)</option>
+            <option value="all">全公司共享 (all)</option>
+          </select>
+        </div>
+        <div class="tax-form-group" style="grid-column: span 2;">
+          <label>支出摘要/原因 Reason / Description</label>
+          <input type="text" id="txReason" placeholder="例如：8月份銅鑼灣門市租金 / 順豐運費 / FB廣告">
+        </div>
+        <div class="tax-form-group" style="justify-content: flex-end;">
+          <button onclick="submitTaxExpense()" style="background: #27ae60; color: #fff; border: none; padding: 10px; border-radius: 6px; font-weight: bold; cursor: pointer;">💾 儲存開支</button>
+        </div>
+      </div>
+
+      <div class="filters" style="padding: 10px 0; background: transparent; border-bottom: none;">
+        <label>從 <input type="date" id="txFilterStart"></label>
+        <label>到 <input type="date" id="txFilterEnd"></label>
+        <button onclick="loadTaxExpenseData()">🔍 查詢統計</button>
+        <button onclick="setTaxQuickDate('thisMonth')" style="background:#3498db;">本月</button>
+        <button onclick="setTaxQuickDate('taxYearThis')" style="background:#8e44ad;">本稅務年度 (25/26)</button>
+        <button onclick="setTaxQuickDate('taxYearLast')" style="background:#7f8c8d;">上稅務年度 (24/25)</button>
+        <button onclick="exportTaxExpensesExcel()" style="background:#27ae60; margin-left: auto;">📤 匯出報稅 Excel (.xlsx)</button>
+      </div>
+
+      <div class="summary" id="taxCategorySummary" style="margin-bottom: 12px; background: #fdfefe; border: 1px solid #d5f5e3; border-radius: 8px; padding: 12px;"></div>
+
+      <div class="table-wrapper" style="max-height: 38vh;">
+        <table id="taxExpenseTable" class="report-table">
+          <thead>
+            <tr>
+              <th style="width: 100px;">發票日期</th>
+              <th style="width: 220px;">報稅分類 Category</th>
+              <th>支出摘要 Description</th>
+              <th style="width: 110px; text-align: right;">金額 (AmountTax)</th>
+              <th style="width: 140px;">支付來源</th>
+              <th style="width: 80px;">分店</th>
+              <th style="width: 70px; text-align: center;">操作</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
     </div>
   </div>
 </div>
+
+<!-- 🔍 商品搜尋 Modal（整合 V2 高效搜尋） -->
+<div id="prodModal" class="modal">
+  <div class="box">
+    <div class="head">
+      <span>🔍 商品搜尋 Product Search <span style="font-size:11px;background:rgba(255,255,255,.2);padding:2px 8px;border-radius:10px;">20,000 SKU 優化版</span></span>
+      <span class="close" onclick="closeProdModal()">&times;</span>
+    </div>
+    <div style="padding: 20px;">
+      <label class="block" style="font-size:13px;font-weight:600;color:#475569;margin-bottom:6px;">
+        支援：條碼槍直掃、模糊單字（如 Twins Jump Ro）、空格多條件（如 Twins 4meter）
+      </label>
+      <div style="position:relative;">
+        <input
+          id="prodSearchInput"
+          type="text"
+          placeholder="請輸入關鍵字或直接掃描條碼..."
+          autocomplete="off"
+        >
+        <span id="prodLoadingSpinner">搜尋中...</span>
+      </div>
+      <div class="prod-hint">搜尋範圍：商品名稱 (name) + 條碼 (barcode)。純數字 ≥ 7 碼自動精準匹配條碼；多關鍵字以空白分隔做 AND 搜尋。</div>
+
+      <!-- 搜尋結果表格 -->
+      <div class="table-wrapper" style="margin-top:14px;max-height:45vh;">
+        <table class="report-table">
+          <thead>
+            <tr>
+              <th style="width:110px;">條碼 (Barcode)</th>
+              <th>商品名稱 (Name)</th>
+              <th style="width:90px;">庫存</th>
+              <th style="width:110px;">售價</th>
+              <th style="width:120px;text-align:right;">操作</th>
+            </tr>
+          </thead>
+          <tbody id="prodResultBody">
+            <tr><td colspan="5" style="text-align:center;color:#94a3b8;padding:32px;">請輸入關鍵字或使用條碼槍開始搜尋</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="prodEditModal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);z-index:9999;">
+  <div style="background:#fff;width:400px;margin:10% auto;padding:20px;border-radius:8px;">
+    <h3 id="prodEditTitle">編輯商品</h3>
+    <input type="hidden" id="edit_prod_id">
+    Barcode: <input id="edit_barcode" style="width:100%;margin-bottom:5px;"><br>
+    Name: <input id="edit_name" style="width:100%;margin-bottom:5px;"><br>
+    Price: <input id="edit_price" type="number" style="width:100%;margin-bottom:5px;"><br>
+    Stock: <input id="edit_stock" type="number" style="width:100%;margin-bottom:10px;"><br>
+    <button onclick="saveProd()">儲存</button>
+    <button onclick="closeProdEdit()">取消</button>
+  </div>
+</div>
+
+<!-- 💵 現金結餘 Modal -->
+<div class="modal" id="cashModal">
+  <div class="box" style="max-width: 800px;">
+    <div class="head">
+      <span>💵 CWB 現金結餘 Cash Balance</span>
+      <span class="close" onclick="closeCashModal()">&times;</span>
+    </div>
+    <div class="filters">
+      <label>從 <input type="date" id="fCashStart"></label>
+      <label>到 <input type="date" id="fCashEnd"></label>
+      <button onclick="loadCashBalance()">🔍 查詢</button>
+      <button onclick="setCashQuickDate('today')" style="background:#e74c3c;">今日</button>
+      <button onclick="setCashQuickDate('thisMonth')" style="background:#27ae60;">本月</button>
+      <button onclick="setCashQuickDate('all')" style="background:#95a5a6;">全部歷史</button>
+    </div>
+    <div class="body" style="padding: 20px;">
+      <div class="card-grid">
+        <div class="balance-card">
+          <h4>收款 Cash (+)</h4>
+          <div class="amount" id="cashPayTotal" style="color:#27ae60;">0.00</div>
+        </div>
+        <div class="balance-card">
+          <h4>退款 Cash (-)</h4>
+          <div class="amount" id="cashVoidTotal" style="color:#c0392b;">0.00</div>
+        </div>
+        <div class="balance-card">
+          <h4>門市現金支出 Shop Cash Expenses (amount) (-)</h4>
+          <div class="amount" id="cashExpTotal" style="color:#e67e22;">0.00</div>
+        </div>
+        <div class="balance-card highlight">
+          <h4>淨現金結餘 Net Cash Balance</h4>
+          <div class="amount" id="cashNetBalance">0.00</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 💳 付款方式結餘 Modal -->
+<div class="modal" id="payMethodModal">
+  <div class="box" style="max-width: 900px;">
+    <div class="head">
+      <span>💳 CWB 各付款方式結餘 Payment Methods Balance</span>
+      <span class="close" onclick="closePayMethodModal()">&times;</span>
+    </div>
+    <div class="filters">
+      <label>從 <input type="date" id="fPayStart"></label>
+      <label>到 <input type="date" id="fPayEnd"></label>
+      <button onclick="loadPayMethodBalance()">🔍 查詢</button>
+      <button onclick="setPayQuickDate('today')" style="background:#e74c3c;">今日</button>
+      <button onclick="setPayQuickDate('thisMonth')" style="background:#27ae60;">本月</button>
+      <button onclick="setPayQuickDate('all')" style="background:#95a5a6;">全部歷史</button>
+    </div>
+    <div class="body" style="padding: 15px;">
+      <div class="table-wrapper">
+        <table id="payMethodTable" class="report-table" style="table-layout: auto;">
+          <thead>
+            <tr>
+              <th style="width: 28%;">付款方式 Payment Method</th>
+              <th style="width: 24%; text-align: right;">收款總額 (+)</th>
+              <th style="width: 24%; text-align: right;">退款總額 (-)</th>
+              <th style="width: 24%; text-align: right;">淨結餘 Net Balance</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+          <tfoot>
+            <tr>
+              <td>合計 Total</td>
+              <td id="pmTotalPay" style="text-align: right; color:#27ae60;">0.00</td>
+              <td id="pmTotalVoid" style="text-align: right; color:#c0392b;">0.00</td>
+              <td id="pmTotalNet" style="text-align: right; color:#16a085; font-size: 15px;">0.00</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 通用資料表 Modal（共用） -->
+<div class="modal" id="modal">
+  <div class="box">
+    <div class="head">
+      <span id="modalTitle">資料管理</span>
+      <span class="close" onclick="closeModal()">&times;</span>
+    </div>
+    <div class="filters">
+      <label id="lblStart">從 <input type="date" id="fStart"></label>
+      <label id="lblEnd">到 <input type="date" id="fEnd"></label>
+      <div class="search-container">
+        <input type="text" id="fSearch" placeholder="模糊搜尋..." oninput="handleSearchInput(this.value)">
+        <div class="suggest-box" id="suggestBox"></div>
+      </div>
+      <button onclick="loadData()">🔍 查詢</button>
+      <button onclick="addRow()" class="btn-add" style="margin-left:auto;">➕ 新增</button>
+      <button onclick="loadData()" class="btn-refresh">🔄 重新整理</button>
+    </div>
+    <div class="body">
+      <div class="table-wrapper">
+        <table id="grid">
+          <thead></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="foot">
+      <div class="summary" style="border:none;padding:0;flex:1;">
+        <span>總筆數: <b id="sumCount">0</b></span>
+        <span>總金額: <b id="sumTotal">0.00</b></span>
+        <span>已選: <b id="selCount">0</b></span>
+        <span>已選金額: <b id="selTotal">0.00</b></span>
+      </div>
+      <button onclick="clearSelection()" style="background:#95a5a6;">清除選擇</button>
+    </div>
+  </div>
+</div>
+
 <script>
-/* ===== Supabase 客戶端（請改成你自己的）===== */
+/* ===== Supabase 客戶端設定 ===== */
 const SB_URL = 'https://hictckzamrshdbajaafg.supabase.co';
 const SB_KEY = 'sb_publishable_KP1vgmWGdI2PF9Pb_yjQOg_LWjyC6vv';
 const sb = supabase.createClient(SB_URL, SB_KEY, {
   auth: { persistSession: true, storage: window.localStorage }
 });
 
-/* ===== 各表欄位設定（可依你的實際表格調整）=====
-   cols: 顯示欄位
-   editable: 可編輯欄
-   defaults: 新增時預設值
-   amountCol: 用來計算「總金額」的欄位（每個模組自行定義）
-   searchCols: 模糊搜尋要對照的欄位（需求 5）
-================================================ */
+/* 下拉選單選項清單 */
+const CATEGORY_OPTIONS = [
+  '租金與差餉 (Rent & Rates)',
+  '進貨/貨本 (Cost of Goods Sold)',
+  '薪金與強積金 (Salaries & MPF)',
+  '水電與電訊 (Utilities & Telecom)',
+  '廣告與推廣 (Marketing & Ads)',
+  '運費與物流 (Freight & Shipping)',
+  '門市雜費與維修 (Supplies & Repair)',
+  '資本開支/設備 (Capital Assets)'
+];
+
+const PAY_METHOD_OPTIONS = [
+  { val: 'Owner_Private', text: '東主私人墊付 (Owner Private)' },
+  { val: 'Company_Bank', text: '公司銀行戶口 (Company Bank)' },
+  { val: 'Cash', text: '門市現金 (Shop Cash)' }
+];
+
+/* ===== 各表欄位與寬度設定 ===== */
 const TABLES = {
   expenses: {
-    label: '💸 支出查詢',
-    cols: ['id','created_at','category','reason','amount','note','shop_mk'],
-    editable: ['category','reason','amount','note','shop_mk'],
-    defaults: { category:'雜費', reason:'', amount:0, note:'', shop_mk:'cwb' },
-    amountCol: 'amount',
-    searchCols: ['reason']
+    label: '💸 支出總表 All Expenses',
+    cols: ['id','expense_date','category','reason','amounttax','payment_method','shop_mk'],
+    colWidths: { 'chk':'45px', 'id':'70px', 'expense_date':'120px', 'category':'230px', 'reason':'220px', 'amounttax':'110px', 'payment_method':'160px', 'shop_mk':'80px', 'actions':'90px' },
+    editable: ['expense_date','category','reason','amounttax','payment_method','shop_mk'],
+    selectCols: {
+      category: CATEGORY_OPTIONS.map(c => ({ val: c, text: c })),
+      payment_method: PAY_METHOD_OPTIONS,
+      shop_mk: [{ val: 'cwb', text: 'cwb' }, { val: 'mk', text: 'mk' }, { val: 'all', text: 'all' }]
+    },
+    defaults: { expense_date: toDateInput(new Date()), category:'門市雜費與維修 (Supplies & Repair)', reason:'', amounttax:0, payment_method:'Cash', shop_mk:'cwb' },
+    amountCol: 'amounttax',
+    searchCols: ['reason', 'category', 'payment_method']
   },
   pay_records: {
     label: '💰 收款查詢',
     cols: ['id','order_id', 'pay_type', 'amount', 'shop_mk','created_at'],
+    colWidths: { 'chk':'45px', 'id':'80px', 'order_id':'180px', 'pay_type':'130px', 'amount':'130px', 'shop_mk':'90px', 'created_at':'170px', 'actions':'100px' },
     editable: ['pay_type','amount','shop_mk'],
-    defaults: { pay_type:'Cash', amount:0, order_id:'', shop_mk:'cwb' },
+    defaults: { pay_type:'Cash', amount:0, order_id:'',shop_mk:'cwb'},
     amountCol: 'amount',
-    searchCols: ['pay_type']
+    searchCols: ['pay_type', 'order_id']
   },
   void_records: {
     label: '🚫 作廢查詢',
     cols: ['id','order_id', 'refund_method','remark','amount','operator', 'created_at', 'shop_mk'],
+    colWidths: { 'chk':'45px', 'id':'80px', 'order_id':'180px', 'refund_method':'130px', 'remark':'200px', 'amount':'120px', 'operator':'110px', 'created_at':'170px', 'actions':'100px' },
     editable: ['refund_method','remark','amount','operator','shop_mk'],
     defaults: { refund_method:'Cash', remark:'客戶取消', amount:0, operator:'', shop_mk:'cwb' },
     amountCol: 'amount',
-    searchCols: ['refund_method']
+    searchCols: ['refund_method', 'remark', 'order_id']
   },
   order_item: {
     label: '🛒 明細查詢',
     cols: ['id','order_id','product_id','product_name','barcode','qty','single_price','discount','created_at','shop_mk'],
+    colWidths: { 'chk':'45px', 'id':'70px', 'order_id':'150px', 'product_id':'110px', 'product_name':'220px', 'barcode':'140px', 'qty':'80px', 'single_price':'100px', 'discount':'90px', 'created_at':'170px', 'shop_mk':'90px', 'actions':'100px' },
     editable: ['order_id','product_id','product_name','barcode','qty','single_price','discount','shop_mk'],
     defaults: { order_id:'', product_id:'', product_name:'', barcode:'', qty:1, single_price:0, discount:0, shop_mk:'cwb' },
     amountCol: 'single_price',
-    searchCols: ['product_name','barcode']
+    searchCols: ['product_name','barcode','order_id']
+  },
+  members: {
+    label: '👥 會員管理',
+    cols: ['id','name','phone'],
+    colWidths: { 'chk':'45px', 'id':'100px', 'name':'280px', 'phone':'280px', 'actions':'120px' },
+    editable: ['name','phone'],
+    defaults: { name:'', phone:'', shop_mk:'cwb' },
+    searchCols: ['name','phone'],
+    minSearchLength: 3
   }
 };
+
+const PAYMENT_METHODS = [
+  { name: '現金 Cash', aliases: ['Cash', '現金', 'cash'] },
+  { name: 'VISA', aliases: ['VISA', 'Visa', 'visa'] },
+  { name: 'MASTER', aliases: ['MASTER', 'Master', 'MasterCard', 'Mastercard', 'master'] },
+  { name: '支付寶', aliases: ['支付寶', 'Alipay', 'alipay', 'ALIPAY', 'AlipayHK'] },
+  { name: '微信支付', aliases: ['微信支付', '微信', 'WeChat Pay', 'WeChat', 'wechat', 'wechatpay'] },
+  { name: '八達通', aliases: ['八達通', 'Octopus', 'octopus'] },
+  { name: 'AE', aliases: ['AE', 'American Express', 'Amex', 'amex'] },
+  { name: 'Stripe', aliases: ['Stripe', 'stripe'] },
+  { name: 'Paypal', aliases: ['Paypal', 'PayPal', 'paypal'] },
+  { name: 'Payme', aliases: ['Payme', 'PayMe', 'payme'] },
+  { name: 'Union', aliases: ['Union', 'UnionPay', '銀聯', 'union', 'unionpay'] }
+];
 
 let CURRENT = null;
 let ALL_ROWS = [];
 let SORT = { col: null, dir: 'asc' };
 let SELECTED = new Set();
+let searchDebounce = null;
+let TAX_EXPENSES_DATA = [];
 
-/* ===== 自動登入 / Session 還原 ===== */
+/* ===== ★★★ 分店切換（mk / cwb / all）★★★ =====
+   切換後會把 CURRENT_SHOP 同步到 5 個 modal 的所有 .eq('shop_mk', ...)，
+   並自動重載「當前打開中」的 modal 資料。 */
+const SHOP_CYCLE = ['cwb', 'mk', 'all'];
+const SHOP_LABEL = { cwb: 'CWB', mk: 'MK', all: 'ALL' };
+const SHOP_COLOR = { cwb: '#3498db', mk: '#e83e8c', all: '#28a745' };
+let CURRENT_SHOP = 'cwb';
+
+function cycleShop() {
+  const idx = SHOP_CYCLE.indexOf(CURRENT_SHOP);
+  CURRENT_SHOP = SHOP_CYCLE[(idx + 1) % SHOP_CYCLE.length];
+  refreshShopButton();
+  // 自動重載當前打開的 modal
+  const modal = document.getElementById('modal');
+  const cashM = document.getElementById('cashModal');
+  const payM  = document.getElementById('payMethodModal');
+  if (modal && modal.classList.contains('show') && CURRENT) {
+    loadData();                              // 通用 modal（pay_records / void_records / order_item）
+  } else if (cashM && cashM.classList.contains('show')) {
+    loadCashBalance();
+  } else if (payM && payM.classList.contains('show')) {
+    loadPayMethodBalance();
+  }
+  showToast('已切換分店：' + SHOP_LABEL[CURRENT_SHOP]);
+}
+
+function refreshShopButton() {
+  const btn = document.getElementById('shopSwitchBtn');
+  if (!btn) return;
+  btn.textContent = '🏪 ' + SHOP_LABEL[CURRENT_SHOP];
+  btn.style.background = SHOP_COLOR[CURRENT_SHOP];
+}
+window.cycleShop = cycleShop;
+window.refreshShopButton = refreshShopButton;
+window.CURRENT_SHOP = CURRENT_SHOP;
+
+/* ===== Session 自動還原 ===== */
 window.addEventListener('DOMContentLoaded', async () => {
   const { data: { session } } = await sb.auth.getSession();
   if (session) {
     document.getElementById('loginBox').style.display = 'none';
     document.getElementById('userInfo').textContent = session.user.email;
   }
+  refreshShopButton();   // ★★★ 初始化分店切換按鈕樣式
+});
+
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.search-container')) hideSuggestBox();
 });
 
 async function posLogin() {
@@ -188,37 +578,101 @@ async function posLogin() {
   document.getElementById('userInfo').textContent = data.session.user.email;
 }
 
-/* ===== 彈窗控制 ===== */
 function openModal(name) {
   CURRENT = name;
   SELECTED = new Set();
   SORT = { col: null, dir: 'asc' };
   document.getElementById('modalTitle').textContent = TABLES[name].label;
   document.getElementById('modal').classList.add('show');
+  hideSuggestBox();
+
   const today = new Date();
-  document.getElementById('fStart').value = toDateInput(new Date(today.setHours(0,0,0,0)));
-  document.getElementById('fEnd').value = toDateInput(new Date());
+  if (name === 'members') {
+    document.getElementById('lblStart').style.display = 'none';
+    document.getElementById('lblEnd').style.display = 'none';
+    document.getElementById('fSearch').placeholder = '輸入3字即時搜尋姓名或電話...';
+  } else {
+    document.getElementById('lblStart').style.display = 'inline-block';
+    document.getElementById('lblEnd').style.display = 'inline-block';
+    document.getElementById('fStart').value = toDateInput(new Date(today.setHours(0,0,0,0)));
+    document.getElementById('fEnd').value = toDateInput(new Date());
+    document.getElementById('fSearch').placeholder = '模糊搜尋...';
+  }
+  
   document.getElementById('fSearch').value = '';
   buildHeader();
   loadData();
 }
+
 function closeModal() {
   document.getElementById('modal').classList.remove('show');
+  hideSuggestBox();
   CURRENT = null;
 }
+
 function toDateInput(d) {
+  if (!d) return '';
   const pad = n => String(n).padStart(2,'0');
   return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
 }
+
 function buildHeader() {
-  const cols = TABLES[CURRENT].cols;
-  document.querySelector('#grid thead').innerHTML =
-    '<tr><th><input type="checkbox" class="chk" onclick="toggleSelectAll(this)"></th>'
-    + cols.map(c => `<th onclick="sortBy('${c}')">${c} <span class="arrow"></span></th>`).join('')
-    + '<th>操作</th></tr>';
+  const cfg = TABLES[CURRENT];
+  const cols = cfg.cols;
+  const widths = cfg.colWidths || {};
+
+  let html = '<tr>';
+  html += `<th style="width:${widths['chk'] || '45px'}; text-align:center;"><input type="checkbox" class="chk" onclick="toggleSelectAll(this, event)"></th>`;
+  cols.forEach(c => {
+    const w = widths[c] ? `width:${widths[c]};` : '';
+    html += `<th style="${w}" onclick="sortBy('${c}')">${c} <span class="arrow"></span></th>`;
+  });
+  html += `<th style="width:${widths['actions'] || '100px'};">操作</th></tr>`;
+  document.querySelector('#grid thead').innerHTML = html;
 }
 
-/* ===== 讀取（依日期查詢 + 模糊搜尋）===== */
+function handleSearchInput(val) {
+  if (CURRENT !== 'members') { hideSuggestBox(); return; }
+  const keyword = val.trim();
+  if (keyword.length < 3) { hideSuggestBox(); return; }
+
+  clearTimeout(searchDebounce);
+  searchDebounce = setTimeout(async () => {
+    const { data, error } = await sb.from('members')
+      .select('id, name, phone')
+      .or(`name.ilike.%${keyword}%,phone.ilike.%${keyword}%`)
+      .limit(10);
+    if (error || !data || data.length === 0) { hideSuggestBox(); return; }
+    showSuggestBox(data);
+  }, 250);
+}
+
+function showSuggestBox(items) {
+  const box = document.getElementById('suggestBox');
+  box.innerHTML = items.map(item => 
+    `<div class="suggest-item" onclick="selectSuggestItem('${item.id}', '${escapeHtml(item.name)}', '${escapeHtml(item.phone)}')">
+      <span class="name">${escapeHtml(item.name || '(無姓名)')}</span>
+      <span class="phone">📞 ${escapeHtml(item.phone || '-')}</span>
+    </div>`
+  ).join('');
+  box.classList.add('show');
+}
+
+function hideSuggestBox() {
+  const box = document.getElementById('suggestBox');
+  if (box) box.classList.remove('show');
+}
+
+function selectSuggestItem(id, name, phone) {
+  document.getElementById('fSearch').value = name || phone;
+  hideSuggestBox();
+  loadData();
+}
+
+function escapeHtml(str) {
+  return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
 async function loadData() {
   if (!CURRENT) return;
   setStatus('讀取中...');
@@ -230,25 +684,30 @@ async function loadData() {
   const { data: { user }, error: authErr } = await sb.auth.getUser();
   if (authErr || !user) { alert('⚠️ 請先登入'); closeModal(); return; }
 
-  // ★ 所有查詢強制只抽 shop_mk = 'cwb'，避免混入其他分店資料
-  let query = sb.from(CURRENT).select('*').eq('shop_mk', 'cwb');
-  if (start) query = query.gte('created_at', start + 'T00:00:00.000Z');
-  if (end) {
-    const nextDay = new Date(end + 'T00:00:00.000Z');
-    nextDay.setDate(nextDay.getDate() + 1);
-    query = query.lt('created_at', nextDay.toISOString());
+  let query = sb.from(CURRENT).select('*');
+
+  if (CURRENT === 'members') {
+    if (keyword) {
+      if (keyword.length < 3) { alert('⚠️ 搜尋會員請輸入至少 3 個字元'); setStatus('字數太短'); return; }
+      query = query.or(`name.ilike.%${keyword}%,phone.ilike.%${keyword}%`).limit(100);
+    } else query = query.order('id', { ascending: false }).limit(50);
+  } else {
+    query = query.eq('shop_mk', CURRENT_SHOP);
+    if (start) query = query.gte('created_at', start + 'T00:00:00.000Z');
+    if (end) {
+      const nextDay = new Date(end + 'T00:00:00.000Z');
+      nextDay.setDate(nextDay.getDate() + 1);
+      query = query.lt('created_at', nextDay.toISOString());
+    }
   }
 
   const { data, error } = await query;
   if (error) { setStatus('查詢失敗：' + error.message); return; }
 
   let rows = data || [];
-  if (keyword) {
+  if (CURRENT !== 'members' && keyword) {
     const k = keyword.toLowerCase();
-    rows = rows.filter(r => cfg.searchCols.some(col => {
-      const v = r[col];
-      return v != null && String(v).toLowerCase().includes(k);
-    }));
+    rows = rows.filter(r => cfg.searchCols.some(col => r[col] != null && String(r[col]).toLowerCase().includes(k)));
   }
 
   ALL_ROWS = rows;
@@ -256,16 +715,12 @@ async function loadData() {
   setStatus(`共 ${rows.length} 筆`);
 }
 
-/* ===== 排序 ===== */
 function sortBy(col) {
-  if (SORT.col === col) {
-    SORT.dir = SORT.dir === 'asc' ? 'desc' : 'asc';
-  } else {
-    SORT.col = col;
-    SORT.dir = 'asc';
-  }
+  if (SORT.col === col) SORT.dir = SORT.dir === 'asc' ? 'desc' : 'asc';
+  else { SORT.col = col; SORT.dir = 'asc'; }
   applySortAndRender();
 }
+
 function applySortAndRender() {
   let rows = ALL_ROWS.slice();
   if (SORT.col) {
@@ -273,111 +728,128 @@ function applySortAndRender() {
       const av = a[SORT.col], bv = b[SORT.col];
       if (av == null) return 1;
       if (bv == null) return -1;
-      if (typeof av === 'number' && typeof bv === 'number') {
-        return SORT.dir === 'asc' ? av - bv : bv - av;
-      }
-      const cmp = String(av).localeCompare(String(bv));
-      return SORT.dir === 'asc' ? cmp : -cmp;
+      if (typeof av === 'number' && typeof bv === 'number') return SORT.dir === 'asc' ? av - bv : bv - av;
+      return SORT.dir === 'asc' ? String(av).localeCompare(String(bv)) : -String(av).localeCompare(String(bv));
     });
   }
   renderRows(rows);
-  document.querySelectorAll('#grid thead .arrow').forEach(el => el.textContent = '');
-  const idx = TABLES[CURRENT].cols.indexOf(SORT.col);
-  if (idx >= 0 && SORT.col) {
-    document.querySelectorAll('#grid thead .arrow')[idx].textContent = SORT.dir === 'asc' ? '▲' : '▼';
-  }
 }
 
-/* ===== 渲染表格 ===== */
 function renderRows(rows) {
-  const cols = TABLES[CURRENT].cols;
+  const cfg = TABLES[CURRENT];
+  const cols = cfg.cols;
   const tbody = document.querySelector('#grid tbody');
+
   tbody.innerHTML = rows.map((r) => {
+    const isSelected = SELECTED.has(String(r.id));
     const cells = cols.map(c => {
       const val = r[c] ?? '';
-      return TABLES[CURRENT].editable.includes(c)
-        ? `<td><input data-id="${r.id}" data-col="${c}" value="${val}"></td>`
-        : `<td>${typeof val === 'object' ? JSON.stringify(val) : val}</td>`;
+      if (cfg.editable.includes(c)) {
+        if (cfg.selectCols && cfg.selectCols[c]) {
+          const optionsHtml = cfg.selectCols[c].map(opt => {
+            const isSel = String(opt.val) === String(val) ? 'selected' : '';
+            return `<option value="${escapeHtml(opt.val)}" ${isSel}>${escapeHtml(opt.text)}</option>`;
+          }).join('');
+          return `<td><select data-id="${r.id}" data-col="${c}" onchange="updateRowMemory('${r.id}', '${c}', this.value)" onclick="event.stopPropagation()">${optionsHtml}</select></td>`;
+        }
+        
+        if (c === 'expense_date') {
+          return `<td><input type="date" data-id="${r.id}" data-col="${c}" value="${val}" onchange="updateRowMemory('${r.id}', '${c}', this.value)" onclick="event.stopPropagation()"></td>`;
+        }
+
+        return `<td><input data-id="${r.id}" data-col="${c}" value="${val}" oninput="updateRowMemory('${r.id}', '${c}', this.value)" onclick="event.stopPropagation()"></td>`;
+      }
+      return `<td>${typeof val === 'object' ? JSON.stringify(val) : val}</td>`;
     }).join('');
-    const checked = SELECTED.has(r.id) ? 'checked' : '';
-    return `<tr class="${SELECTED.has(r.id) ? 'selected' : ''}" data-id="${r.id}">`
-      + `<td><input type="checkbox" class="chk" ${checked} onclick="toggleSelect('${r.id}', this)"></td>`
+
+    const checked = isSelected ? 'checked' : '';
+    return `<tr class="${isSelected ? 'selected' : ''}" data-id="${r.id}" onclick="handleRowClick('${r.id}', event)">`
+      + `<td style="text-align:center;"><input type="checkbox" class="chk" ${checked} onclick="event.stopPropagation(); handleChkClick('${r.id}', this)"></td>`
       + cells
-      + `<td class="row-actions">
+      + `<td class="row-actions" onclick="event.stopPropagation()">
           <button class="btn-save" onclick="saveRow('${r.id}')">💾</button>
           <button class="btn-del" onclick="deleteRow('${r.id}')">🗑</button>
         </td></tr>`;
   }).join('');
+
   updateSummary();
 }
 
-/* ===== 多選 ===== */
-function toggleSelect(id, checkbox) {
-  if (checkbox.checked) SELECTED.add(id);
+function updateRowMemory(id, col, val) {
+  const row = ALL_ROWS.find(r => String(r.id) === String(id));
+  if (row) {
+    row[col] = ['qty','single_price','discount','amount','amounttax'].includes(col) ? Number(val) || 0 : val;
+    updateSummary();
+  }
+}
+
+function handleRowClick(id, event) {
+  id = String(id);
+  const chk = document.querySelector(`tr[data-id="${id}"] .chk`);
+  if (chk) { chk.checked = !chk.checked; handleChkClick(id, chk); }
+}
+
+function handleChkClick(id, chk) {
+  id = String(id);
+  if (chk.checked) SELECTED.add(id);
   else SELECTED.delete(id);
   const tr = document.querySelector(`#grid tr[data-id="${id}"]`);
-  if (tr) tr.classList.toggle('selected', checkbox.checked);
+  if (tr) tr.classList.toggle('selected', chk.checked);
   updateSummary();
 }
-function toggleSelectAll(master) {
+
+function toggleSelectAll(master, event) {
+  if(event) event.stopPropagation();
   const checkboxes = document.querySelectorAll('#grid tbody .chk');
   checkboxes.forEach(cb => {
     const tr = cb.closest('tr');
-    const id = tr.dataset.id;
+    const id = String(tr.dataset.id);
     cb.checked = master.checked;
-    if (master.checked) SELECTED.add(id);
-    else SELECTED.delete(id);
+    if (master.checked) SELECTED.add(id); else SELECTED.delete(id);
     tr.classList.toggle('selected', master.checked);
   });
   updateSummary();
 }
+
 function clearSelection() {
-  SELECTED = new Set();
+  SELECTED.clear();
   document.querySelectorAll('#grid .chk').forEach(cb => cb.checked = false);
   document.querySelectorAll('#grid tbody tr').forEach(tr => tr.classList.remove('selected'));
   updateSummary();
 }
 
-/* ===== 總金額計算 ===== */
-function updateSummary() {
+function getItemAmount(r) {
+  if (!r) return 0;
+  if (CURRENT === 'order_item') return (Number(r.qty) || 0) * (Number(r.single_price) || 0) - (Number(r.discount) || 0);
   const cfg = TABLES[CURRENT];
-  const amountCol = cfg.amountCol;
-  const allTotal = ALL_ROWS.reduce((s, r) => s + (Number(r[amountCol]) || 0), 0);
-  const selTotal = ALL_ROWS
-    .filter(r => SELECTED.has(r.id))
-    .reduce((s, r) => s + (Number(r[amountCol]) || 0), 0);
+  const amtCol = cfg.amountCol || 'amount';
+  return Number(r[amtCol]) || 0;
+}
 
+function updateSummary() {
+  const allTotal = ALL_ROWS.reduce((s, r) => s + getItemAmount(r), 0);
+  const selTotal = ALL_ROWS.filter(r => SELECTED.has(String(r.id))).reduce((s, r) => s + getItemAmount(r), 0);
   document.getElementById('sumCount').textContent = ALL_ROWS.length;
   document.getElementById('sumTotal').textContent = formatMoney(allTotal);
   document.getElementById('selCount').textContent = SELECTED.size;
   document.getElementById('selTotal').textContent = formatMoney(selTotal);
 }
-function rowAmount(r) {
-  const cfg = TABLES[CURRENT];
-  if (CURRENT === 'order_item') {
-    return (Number(r.qty) || 0) * (Number(r.single_price) || 0) - (Number(r.discount) || 0);
-  }
-  return Number(r[cfg.amountCol]) || 0;
-}
-function formatMoney(n) { return Number(n).toLocaleString('zh-Hant', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 
-/* ===== 新增一列 ===== */
+function formatMoney(n) { 
+  return Number(n || 0).toLocaleString('zh-Hant', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); 
+}
+
 function addRow() {
-  const cols = TABLES[CURRENT].cols;
-  const def = TABLES[CURRENT].defaults;
-  const tbody = document.querySelector('#grid tbody');
+  const cfg = TABLES[CURRENT];
+  const def = cfg.defaults;
   const id = 'NEW_' + Date.now();
-  const cells = cols.map(c => {
-    const val = def[c] ?? '';
-    return `<td><input data-id="${id}" data-col="${c}" value="${val}"></td>`;
-  }).join('');
-  tbody.insertAdjacentHTML('afterbegin', `<tr data-id="${id}"><td></td>${cells}
-    <td class="row-actions"><button class="btn-save" onclick="saveRow('${id}')">💾 新增</button></td></tr>`);
+  ALL_ROWS.unshift({ id, ...def });
+  renderRows(ALL_ROWS);
+  updateSummary();
 }
 
-/* ===== 寫入 / 更新 ===== */
 async function saveRow(id) {
-  const inputs = document.querySelectorAll(`#grid input[data-id="${id}"]`);
+  const inputs = document.querySelectorAll(`#grid input[data-id="${id}"], #grid select[data-id="${id}"]`);
   const cfg = TABLES[CURRENT];
   const payload = {};
 
@@ -385,30 +857,20 @@ async function saveRow(id) {
     const col = inp.dataset.col;
     if (!cfg.cols.includes(col)) return;
     let val = inp.value;
-    if (['qty','single_price','discount','amount','change_amount'].includes(col)) {
-      val = val === '' ? 0 : Number(val);
-    }
+    if (['qty','single_price','discount','amount','amounttax'].includes(col)) val = val === '' ? 0 : Number(val);
     payload[col] = val;
   });
 
-  // ★ 所有寫入一律帶上 shop_mk = 'cwb'，確保資料歸屬 CWB 分店
-  payload.shop_mk = 'cwb';
+  if (!payload.shop_mk) payload.shop_mk = 'cwb';
   if (!payload.created_at) payload.created_at = new Date().toISOString();
-
-  if (CURRENT === 'order_item' && !String(payload.order_id || '').trim()) {
-    alert('⚠️ order_id 不可為空');
-    return;
-  }
 
   setStatus('儲存中...');
   let res;
   if (String(id).startsWith('NEW_')) {
-    const insertPayload = { ...payload };
-    delete insertPayload.id;
+    const insertPayload = { ...payload }; delete insertPayload.id;
     res = await sb.from(CURRENT).insert([insertPayload]).select();
   } else {
-    const updatePayload = { ...payload };
-    delete updatePayload.created_at;
+    const updatePayload = { ...payload }; delete updatePayload.created_at;
     res = await sb.from(CURRENT).update(updatePayload).eq('id', id).select();
   }
 
@@ -417,47 +879,585 @@ async function saveRow(id) {
   loadData();
 }
 
-/* ===== 刪除 ===== */
 async function deleteRow(id) {
   if (!confirm('確定刪除這筆？')) return;
   const res = await sb.from(CURRENT).delete().eq('id', id);
   if (res.error) { setStatus('刪除失敗：' + res.error.message); return; }
-  SELECTED.delete(id);
+  SELECTED.delete(String(id));
   setStatus('🗑 已刪除');
   loadData();
 }
 
-/* ===== 現金結餘（全部歷史，只算 shop_mk = 'cwb'）=====
-   結餘 = SUM(pay_records.pay_type='Cash') - SUM(void_records.refund_method='Cash') - SUM(expenses)
-   三張表都只抽 cwb，不混入其他分店
-================================================ */
-async function calcCashBalance() {
+/* ==========================================================================
+   ★ 📊 稅務支出管理模組 (嚴格使用 amounttax 欄位)
+   ========================================================================== */
+function openTaxExpenseModal() {
+  document.getElementById('taxExpenseModal').classList.add('show');
+  document.getElementById('txDate').value = toDateInput(new Date());
+  document.getElementById('txAmount').value = '';
+  document.getElementById('txReason').value = '';
+  setTaxQuickDate('thisMonth');
+}
+
+function closeTaxExpenseModal() {
+  document.getElementById('taxExpenseModal').classList.remove('show');
+}
+
+function setTaxQuickDate(type) {
+  const startEl = document.getElementById('txFilterStart');
+  const endEl = document.getElementById('txFilterEnd');
+  const today = new Date();
+  const curYear = today.getFullYear();
+
+  if (type === 'thisMonth') {
+    startEl.value = toDateInput(new Date(curYear, today.getMonth(), 1));
+    endEl.value = toDateInput(today);
+  } else if (type === 'taxYearThis') {
+    const startYear = today.getMonth() >= 3 ? curYear : curYear - 1;
+    startEl.value = `${startYear}-04-01`;
+    endEl.value = `${startYear + 1}-03-31`;
+  } else if (type === 'taxYearLast') {
+    const startYear = today.getMonth() >= 3 ? curYear - 1 : curYear - 2;
+    startEl.value = `${startYear}-04-01`;
+    endEl.value = `${startYear + 1}-03-31`;
+  }
+  loadTaxExpenseData();
+}
+
+async function submitTaxExpense() {
+  const expense_date = document.getElementById('txDate').value;
+  const category = document.getElementById('txCategory').value;
+  const amounttax = parseFloat(document.getElementById('txAmount').value);
+  const payment_method = document.getElementById('txPayMethod').value;
+  const shop_mk = document.getElementById('txShop').value;
+  const reason = document.getElementById('txReason').value.trim();
+
+  if (!expense_date || isNaN(amounttax) || amounttax <= 0 || !reason) {
+    alert('⚠️ 請填寫完整日期、有效的金額與支出摘要！');
+    return;
+  }
+
+  const payload = {
+    expense_date,
+    category,
+    amounttax,
+    payment_method,
+    shop_mk,
+    reason,
+    created_at: new Date().toISOString()
+  };
+
+  setStatus('正在儲存開支...');
+  const { error } = await sb.from('expenses').insert([payload]).select();
+
+  if (error) {
+    alert('儲存失敗：' + error.message);
+    setStatus('儲存開支失敗');
+    return;
+  }
+
+  alert('✅ 支出已成功記錄！');
+  document.getElementById('txAmount').value = '';
+  document.getElementById('txReason').value = '';
+  loadTaxExpenseData();
+}
+
+async function loadTaxExpenseData() {
+  setStatus('載入報稅開支數據...');
+  const start = document.getElementById('txFilterStart').value;
+  const end = document.getElementById('txFilterEnd').value;
+
+  let query = sb.from('expenses').select('*');
+  if (start) query = query.gte('expense_date', start);
+  if (end) query = query.lte('expense_date', end);
+
+  const { data, error } = await query.order('expense_date', { ascending: false });
+
+  if (error) {
+    alert('查詢失敗：' + error.message);
+    setStatus('查詢失敗');
+    return;
+  }
+
+  TAX_EXPENSES_DATA = data || [];
+  renderTaxExpenseTable(TAX_EXPENSES_DATA);
+  renderTaxCategorySummary(TAX_EXPENSES_DATA);
+  setStatus(`開支載入完成，共 ${TAX_EXPENSES_DATA.length} 筆`);
+}
+
+function renderTaxExpenseTable(rows) {
+  const tbody = document.querySelector('#taxExpenseTable tbody');
+  tbody.innerHTML = rows.map(r => {
+    const amt = Number(r.amounttax) || 0;
+    return `
+    <tr>
+      <td>${r.expense_date || toDateInput(new Date(r.created_at))}</td>
+      <td style="font-weight:bold; color:#2980b9;">${escapeHtml(r.category || '門市雜費與維修')}</td>
+      <td>${escapeHtml(r.reason || '-')}</td>
+      <td style="text-align:right; font-weight:bold; color:#c0392b;">$${formatMoney(amt)}</td>
+      <td>${getPayMethodBadge(r.payment_method)}</td>
+      <td><span style="background:#e8f8f5; color:#16a085; padding:2px 6px; border-radius:4px; font-weight:bold;">${r.shop_mk || 'cwb'}</span></td>
+      <td style="text-align:center;">
+        <button class="btn-del" onclick="deleteTaxExpense('${r.id}')" style="padding:2px 6px;">🗑</button>
+      </td>
+    </tr>
+    `;
+  }).join('');
+}
+
+function getPayMethodBadge(method) {
+  if (method === 'Owner_Private') return '<span style="color:#d35400; font-weight:bold;">👤 東主私人</span>';
+  if (method === 'Company_Bank') return '<span style="color:#2980b9; font-weight:bold;">🏛 公司戶口</span>';
+  return '<span style="color:#27ae60; font-weight:bold;">💵 門市現金</span>';
+}
+
+function renderTaxCategorySummary(rows) {
+  const summaryBox = document.getElementById('taxCategorySummary');
+  const catTotals = {};
+  let grandTotal = 0;
+
+  rows.forEach(r => {
+    const cat = r.category || '門市雜費與維修 (Supplies & Repair)';
+    const amt = Number(r.amounttax) || 0;
+    catTotals[cat] = (catTotals[cat] || 0) + amt;
+    grandTotal += amt;
+  });
+
+  let html = `<div style="width:100%; font-weight:bold; font-size:15px; color:#2c3e50; margin-bottom:8px;">
+    期間開支總額 (Total Expense): <b style="color:#c0392b; font-size:18px;">HK$ ${formatMoney(grandTotal)}</b>
+  </div><div style="display:flex; gap:16px; flex-wrap:wrap; width:100%;">`;
+
+  Object.keys(catTotals).forEach(cat => {
+    html += `<div style="font-size:12px; color:#555;">${cat}: <b style="color:#2980b9;">$${formatMoney(catTotals[cat])}</b></div>`;
+  });
+
+  html += `</div>`;
+  summaryBox.innerHTML = html;
+}
+
+async function deleteTaxExpense(id) {
+  if (!confirm('確定刪除這筆開支記錄？')) return;
+  const { error } = await sb.from('expenses').delete().eq('id', id);
+  if (error) { alert('刪除失敗：' + error.message); return; }
+  loadTaxExpenseData();
+}
+
+function exportTaxExpensesExcel() {
+  if (!TAX_EXPENSES_DATA || TAX_EXPENSES_DATA.length === 0) {
+    alert('⚠️ 目前範圍內無數據可供匯出');
+    return;
+  }
+
+  const exportRows = TAX_EXPENSES_DATA.map(r => ({
+    '發票/單據日期 Date': r.expense_date || toDateInput(new Date(r.created_at)),
+    '報稅分類 Category (BIR52)': r.category || '門市雜費與維修',
+    '支出摘要 Description': r.reason || '',
+    '金額 AmountTax (HKD)': Number(r.amounttax) || 0,
+    '支付來源 Payment Method': r.payment_method || 'Cash',
+    '分店 Shop': r.shop_mk || 'cwb',
+    '記錄時間 Created At': r.created_at
+  }));
+
+  const start = document.getElementById('txFilterStart').value || 'start';
+  const end = document.getElementById('txFilterEnd').value || 'end';
+
+  const ws = XLSX.utils.json_to_sheet(exportRows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Tax Expenses");
+  XLSX.writeFile(wb, `Tax_Expenses_Report_${start}_to_${end}.xlsx`);
+}
+
+/* ==========================================================================
+   ★ 🔍 商品搜尋模組（整合 V2 高效搜尋邏輯，搜尋 name + barcode）
+   ========================================================================== */
+const PROD_TABLE = 'products'; // 若表名不同請改此
+
+/* 開啟 / 關閉 Modal */
+function openProductSearch() {
+  document.getElementById('prodModal').classList.add('show');
+  const input = document.getElementById('prodSearchInput');
+  input.value = '';
+  input.focus();
+  renderProdTable([]); // 清空結果
+}
+function closeProdModal() {
+  document.getElementById('prodModal').classList.remove('show');
+}
+
+let prodDebounceTimer = null;
+
+/* 初始化搜尋事件（防抖 + Enter 條碼槍） */
+function initProductSearch() {
+  const input = document.getElementById('prodSearchInput');
+  const spinner = document.getElementById('prodLoadingSpinner');
+
+  // 1. 輸入防抖（200ms）
+  input.addEventListener('input', (e) => {
+    const query = e.target.value.trim();
+    clearTimeout(prodDebounceTimer);
+    if (!query) {
+      renderProdTable([]);
+      spinner.style.display = 'none';
+      return;
+    }
+    spinner.style.display = 'inline';
+    prodDebounceTimer = setTimeout(() => {
+      execProductSearch(query, false);
+    }, 200);
+  });
+
+  // 2. Enter 鍵（專為條碼槍設計：掃描完自動帶入 + 清空）
+  input.addEventListener('keydown', async (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      clearTimeout(prodDebounceTimer);
+      const query = input.value.trim();
+      if (!query) return;
+      spinner.style.display = 'inline';
+      await execProductSearch(query, true);
+    }
+  });
+}
+
+/* 核心搜尋邏輯
+   - 純數字且 ≥ 7 碼 → 精準匹配 barcode（先）
+   - 否則 → 空格拆多關鍵字，name + barcode 做 OR 模糊搜尋（AND 邏輯）
+*/
+async function execProductSearch(query, isBarcodeScanner = false) {
+  const spinner = document.getElementById('prodLoadingSpinner');
+  try {
+    // 情境 A：純數字 ≥ 7 碼，先精準匹配 barcode
+    if (/^\d+$/.test(query) && query.length >= 7) {
+      const { data: barcodeData, error: be } = await sb
+        .from(PROD_TABLE)
+        .select('id, name, price, barcode, stock')
+        .eq('barcode', query)
+        .limit(1);
+
+      if (be) throw be;
+
+      if (barcodeData && barcodeData.length > 0) {
+        renderProdTable(barcodeData);
+        if (isBarcodeScanner) {
+          autoAddToCart(barcodeData[0]);
+        }
+        return;
+      }
+      // 若 barcode 精準沒找到，往下走一般模糊搜尋（可能輸入的是數字商品名）
+    }
+
+    // 情境 B：多關鍵字空格拆分，name + barcode 同時搜尋
+    const keywords = query.split(/\s+/).filter(k => k.length > 0);
+    if (keywords.length === 0) { renderProdTable([]); return; }
+
+    // 每個關鍵字：name 或 barcode 任一包含即符合（AND 邏輯）
+    // Supabase 語法：.or() 做 OR，多個 .ilike() 鏈接做 AND
+    let q = sb.from(PROD_TABLE).select('id, name, price, barcode, stock');
+    keywords.forEach(kw => {
+      q = q.or(`name.ilike.%${kw}%,barcode.ilike.%${kw}%`);
+    });
+    const { data, error } = await q.limit(20);
+
+    if (error) throw error;
+    renderProdTable(data || []);
+  } catch (err) {
+    console.error('商品搜尋發生錯誤:', err);
+    setStatus('搜尋失敗：' + err.message);
+  } finally {
+    spinner.style.display = 'none';
+  }
+}
+
+/* 渲染搜尋結果表格 */
+function renderProdTable(products) {
+  const tbody = document.getElementById('prodResultBody');
+  tbody.innerHTML = '';
+
+  if (!products || products.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:#94a3b8;padding:32px;">沒有找到相符的商品，請重新輸入</td></tr>`;
+    return;
+  }
+
+  products.forEach(p => {
+    const row = document.createElement('tr');
+    row.innerHTML = `
+      <td style="font-family:monospace;color:#64748b;">${escapeHtml(p.barcode) || '無條碼'}</td>
+      <td style="font-weight:600;color:#0f172a;">${escapeHtml(p.name)}</td>
+      <td>${p.stock ?? '-'}</td>
+      <td style="font-weight:800;color:#e11d48;">$${Number(p.price || 0).toLocaleString()}</td>
+      <td style="text-align:right;">
+        <button onclick="addToCart(${p.id}, '${escapeHtml(p.name).replace(/'/g, "\\'")}')"
+          style="background:#6366f1;color:#fff;border:none;padding:6px 12px;border-radius:6px;font-weight:bold;cursor:pointer;font-size:12px;">
+          ➕ 選擇
+        </button>
+        <button onclick="openProdEdit(${p.id})"
+          style="background:#e2e8f0;color:#334155;border:none;padding:6px 10px;border-radius:6px;cursor:pointer;font-size:12px;margin-left:4px;">
+          ✏️
+        </button>
+        <button onclick="deleteProd(${p.id})"
+          style="background:#fee2e2;color:#dc2626;border:none;padding:6px 10px;border-radius:6px;cursor:pointer;font-size:12px;margin-left:4px;">
+          🗑
+        </button>
+      </td>
+    `;
+    tbody.appendChild(row);
+  });
+}
+
+/* 條碼槍掃描成功：自動加入結帳清單 */
+function autoAddToCart(product) {
+  const input = document.getElementById('prodSearchInput');
+  input.value = '';
+  input.focus();
+  alert(`【條碼槍直入】已成功將商品加入結帳清單：\n${product.name}`);
+}
+
+/* 手動點擊選擇商品 */
+function addToCart(id, name) {
+  alert(`已選擇商品 ID [${id}] - ${name}`);
+}
+
+/* 編輯商品 */
+function openProdEdit(id) {
+  if (!id) { closeProdEdit(); return; }
+  sb.from(PROD_TABLE).select('*').eq('id', id).single().then(({ data, error }) => {
+    if (error || !data) { alert('讀取商品失敗'); return; }
+    document.getElementById('edit_prod_id').value = data.id;
+    document.getElementById('edit_barcode').value = data.barcode || '';
+    document.getElementById('edit_name').value = data.name || '';
+    document.getElementById('edit_price').value = data.price || 0;
+    document.getElementById('edit_stock').value = data.stock || 0;
+    document.getElementById('prodEditTitle').innerText = '編輯商品 ID:' + data.id;
+    document.getElementById('prodEditModal').style.display = 'block';
+  });
+}
+
+function saveProd() {
+  const id = document.getElementById('edit_prod_id').value;
+  const payload = {
+    barcode: document.getElementById('edit_barcode').value,
+    name: document.getElementById('edit_name').value,
+    price: Number(document.getElementById('edit_price').value),
+    stock: Number(document.getElementById('edit_stock').value)
+  };
+  if (id) {
+    sb.from(PROD_TABLE).update(payload).eq('id', id).then(({ error }) => {
+      if (error) { alert('儲存失敗：' + error.message); return; }
+      closeProdEdit();
+      // 重新執行目前搜尋以刷新結果
+      const cur = document.getElementById('prodSearchInput').value.trim();
+      if (cur) execProductSearch(cur, false);
+    });
+  } else {
+    sb.from(PROD_TABLE).insert([payload]).then(({ error }) => {
+      if (error) { alert('新增失敗：' + error.message); return; }
+      closeProdEdit();
+      const cur = document.getElementById('prodSearchInput').value.trim();
+      if (cur) execProductSearch(cur, false);
+    });
+  }
+}
+
+function deleteProd(id) {
+  if (!confirm('確定刪除商品 ID ' + id + '?')) return;
+  sb.from(PROD_TABLE).delete().eq('id', id).then(({ error }) => {
+    if (error) { alert('刪除失敗：' + error.message); return; }
+    const cur = document.getElementById('prodSearchInput').value.trim();
+    if (cur) execProductSearch(cur, false);
+  });
+}
+
+function closeProdEdit() {
+  document.getElementById('prodEditModal').style.display = 'none';
+}
+
+/* 頁面載入完成後初始化商品搜尋事件 */
+document.addEventListener('DOMContentLoaded', () => {
+  initProductSearch();
+});
+
+/* ==========================================================================
+   ★ 現金結餘與付款方式結餘 (Cash 條件資料庫端精確篩選)
+   ========================================================================== */
+function openCashModal() {
+  document.getElementById('cashModal').classList.add('show');
+  setCashQuickDate('today');
+}
+
+function closeCashModal() {
+  document.getElementById('cashModal').classList.remove('show');
+}
+
+function setCashQuickDate(type) {
+  const startEl = document.getElementById('fCashStart');
+  const endEl = document.getElementById('fCashEnd');
+  const today = new Date();
+
+  if (type === 'today') {
+    startEl.value = toDateInput(today);
+    endEl.value = toDateInput(today);
+  } else if (type === 'thisMonth') {
+    const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+    startEl.value = toDateInput(firstDay);
+    endEl.value = toDateInput(today);
+  } else if (type === 'all') {
+    startEl.value = '';
+    endEl.value = '';
+  }
+  loadCashBalance();
+}
+
+async function loadCashBalance() {
   setStatus('計算現金結餘...');
-
   const { data: { user }, error: authErr } = await sb.auth.getUser();
-  if (authErr || !user) { alert('⚠️ 請先登入'); return; }
+  if (authErr || !user) { alert('⚠️ 請先登入'); closeCashModal(); return; }
 
-  const [{ data: pays }, { data: voids }, { data: exps }] = await Promise.all([
-    sb.from('pay_records').select('amount').eq('shop_mk', 'cwb').eq('pay_type', 'Cash'),
-    sb.from('void_records').select('amount').eq('shop_mk', 'cwb').eq('refund_method', 'Cash'),
-    sb.from('expenses').select('amount').eq('shop_mk', 'cwb')
-  ]);
+  const start = document.getElementById('fCashStart').value;
+  const end = document.getElementById('fCashEnd').value;
 
-  const sum = (arr) => (arr || []).reduce((s, r) => s + (Number(r.amount) || 0), 0);
-  const payTotal  = sum(pays);
-  const voidTotal = sum(voids);
-  const expTotal  = sum(exps);
-  const balance   = payTotal - voidTotal - expTotal;
+  let qPay = sb.from('pay_records').select('amount, pay_type, created_at')
+    .eq('shop_mk', CURRENT_SHOP)
+    .or('pay_type.eq.Cash,pay_type.eq.現金,pay_type.eq.cash');
 
-  alert(
-    `💵 CWB 現金結餘\n\n` +
-    `收款 Cash (+): ${formatMoney(payTotal)}\n` +
-    `退款 Cash (-): ${formatMoney(voidTotal)}\n` +
-    `支出 All    (-): ${formatMoney(expTotal)}\n` +
-    `${'─'.repeat(28)}\n` +
-    `結餘: ${formatMoney(balance)}`
-  );
-  setStatus(`現金結餘：${formatMoney(balance)}`);
+  let qVoid = sb.from('void_records').select('amount, refund_method, created_at')
+    .eq('shop_mk', CURRENT_SHOP)
+    .or('refund_method.eq.Cash,refund_method.eq.現金,refund_method.eq.cash');
+
+  let qExp = sb.from('expenses').select('amount, created_at').eq('shop_mk', CURRENT_SHOP);
+
+  if (start) {
+    const startIso = start + 'T00:00:00.000Z';
+    qPay = qPay.gte('created_at', startIso);
+    qVoid = qVoid.gte('created_at', startIso);
+    qExp = qExp.gte('created_at', startIso);
+  }
+  if (end) {
+    const nextDay = new Date(end + 'T00:00:00.000Z');
+    nextDay.setDate(nextDay.getDate() + 1);
+    const endIso = nextDay.toISOString();
+    qPay = qPay.lt('created_at', endIso);
+    qVoid = qVoid.lt('created_at', endIso);
+    qExp = qExp.lt('created_at', endIso);
+  }
+
+  const [{ data: pays, error: pErr }, { data: voids, error: vErr }, { data: exps, error: eErr }] = await Promise.all([qPay, qVoid, qExp]);
+
+  if (pErr || vErr || eErr) {
+    console.error('現金結餘查詢錯誤：', pErr || vErr || eErr);
+    setStatus('查詢現金結餘失敗');
+    return;
+  }
+
+  const payTotal = (pays || []).reduce((s, r) => s + (Number(r.amount) || 0), 0);
+  const voidTotal = (voids || []).reduce((s, r) => s + (Number(r.amount) || 0), 0);
+  const expTotal = (exps || []).reduce((s, r) => s + (Number(r.amount) || 0), 0);
+
+  const netBalance = payTotal - voidTotal - expTotal;
+
+  document.getElementById('cashPayTotal').textContent = formatMoney(payTotal);
+  document.getElementById('cashVoidTotal').textContent = formatMoney(voidTotal);
+  document.getElementById('cashExpTotal').textContent = formatMoney(expTotal);
+  document.getElementById('cashNetBalance').textContent = formatMoney(netBalance);
+
+  setStatus(`現金結餘已更新（淨結餘：${formatMoney(netBalance)}）`);
+}
+
+function openPayMethodModal() {
+  document.getElementById('payMethodModal').classList.add('show');
+  setPayQuickDate('today');
+}
+
+function closePayMethodModal() {
+  document.getElementById('payMethodModal').classList.remove('show');
+}
+
+function setPayQuickDate(type) {
+  const startEl = document.getElementById('fPayStart');
+  const endEl = document.getElementById('fPayEnd');
+  const today = new Date();
+
+  if (type === 'today') {
+    startEl.value = toDateInput(today);
+    endEl.value = toDateInput(today);
+  } else if (type === 'thisMonth') {
+    const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+    startEl.value = toDateInput(firstDay);
+    endEl.value = toDateInput(today);
+  } else if (type === 'all') {
+    startEl.value = '';
+    endEl.value = '';
+  }
+  loadPayMethodBalance();
+}
+
+function isMethodMatch(recordMethod, methodObj) {
+  if (!recordMethod) return false;
+  const target = String(recordMethod).trim().toLowerCase().replace(/\s+/g, '');
+  return methodObj.aliases.some(alias => {
+    const a = alias.toLowerCase().replace(/\s+/g, '');
+    return target === a || target.includes(a);
+  });
+}
+
+async function loadPayMethodBalance() {
+  setStatus('計算付款方式結餘...');
+  const { data: { user }, error: authErr } = await sb.auth.getUser();
+  if (authErr || !user) { alert('⚠️ 請先登入'); closePayMethodModal(); return; }
+
+  const start = document.getElementById('fPayStart').value;
+  const end = document.getElementById('fPayEnd').value;
+
+  let qPay = sb.from('pay_records').select('amount, pay_type, created_at').eq('shop_mk', CURRENT_SHOP);
+  let qVoid = sb.from('void_records').select('amount, refund_method, created_at').eq('shop_mk', CURRENT_SHOP);
+
+  if (start) {
+    const startIso = start + 'T00:00:00.000Z';
+    qPay = qPay.gte('created_at', startIso);
+    qVoid = qVoid.gte('created_at', startIso);
+  }
+  if (end) {
+    const nextDay = new Date(end + 'T00:00:00.000Z');
+    nextDay.setDate(nextDay.getDate() + 1);
+    const endIso = nextDay.toISOString();
+    qPay = qPay.lt('created_at', endIso);
+    qVoid = qVoid.lt('created_at', endIso);
+  }
+
+  const [{ data: pays }, { data: voids }] = await Promise.all([qPay, qVoid]);
+
+  let grandPay = 0;
+  let grandVoid = 0;
+  let grandNet = 0;
+
+  const tbody = document.querySelector('#payMethodTable tbody');
+  tbody.innerHTML = PAYMENT_METHODS.map(m => {
+    const paySum = (pays || [])
+      .filter(r => isMethodMatch(r.pay_type, m))
+      .reduce((s, r) => s + (Number(r.amount) || 0), 0);
+
+    const voidSum = (voids || [])
+      .filter(r => isMethodMatch(r.refund_method, m))
+      .reduce((s, r) => s + (Number(r.amount) || 0), 0);
+
+    const net = paySum - voidSum;
+
+    grandPay += paySum;
+    grandVoid += voidSum;
+    grandNet += net;
+
+    return `<tr>
+      <td style="font-weight: bold; color: #2c3e50;">${m.name}</td>
+      <td style="text-align: right; color: #27ae60;">${formatMoney(paySum)}</td>
+      <td style="text-align: right; color: #c0392b;">${formatMoney(voidSum)}</td>
+      <td style="text-align: right; font-weight: bold; color: ${net < 0 ? '#c0392b' : '#2c3e50'};">${formatMoney(net)}</td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('pmTotalPay').textContent = formatMoney(grandPay);
+  document.getElementById('pmTotalVoid').textContent = formatMoney(grandVoid);
+  document.getElementById('pmTotalNet').textContent = formatMoney(grandNet);
+
+  setStatus('付款方式結餘計算完畢');
 }
 
 function setStatus(t){ document.getElementById('status').textContent = t; }
